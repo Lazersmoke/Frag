@@ -42,7 +42,7 @@ onConnection pending = do
         -- Add them to the game
         then addConnAsPlayer conn (InGame (0,0,0)) >>= waitInGame
         -- Give the user an error message
-        else io . WS.sendTextData conn $ T.pack "Server owner disabled joining mid game"
+        else sendMessage conn "Server owner disabled joining mid game"
 
 waitInLobby :: Player -> ConnectionT ()
 waitInLobby player = do
