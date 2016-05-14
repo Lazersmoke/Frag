@@ -70,6 +70,7 @@ waitInLobby player = do
         -- Recurse
         waitInLobby 
     "Quit" -> disconnect
+    _ -> sendPlayerMessage player "Invalid Lobby Message" >> disconnect
   where
     disconnect = do
       transformState $ dropPlayer player
