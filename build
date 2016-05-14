@@ -1,2 +1,2 @@
 cabal clean
-cabal build --ghc-options="-Wall -c -fforce-recomp -fno-code"
+cabal build --ghc-options="-Wall"
