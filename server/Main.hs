@@ -3,6 +3,7 @@
 module Main where
 
 import FragData
+import FragUtil
 import FragNetwork
 import FragControl
 

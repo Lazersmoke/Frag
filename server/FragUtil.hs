@@ -61,6 +61,7 @@ transformStateIO f = ask >>= io . flip modifyMVar_ f
 
 -- Transform the MVar/Reader state without IO
 transformState :: (MonadIO m, MonadReader (MVar b) m) => (b -> b) -> m ()
+-- Compose with a return (to make it IO), then give it to transformStateIO
 transformState = transformStateIO . (return .)
 
 addConnAsPlayer :: WS.Connection -> PlayerStage -> ConnectionT Player
@@ -101,6 +102,28 @@ dropPlayer pla ss = ss {players = delete pla $ players ss}
 -- Change the first player to the second one
 modifyPlayer :: Player -> Player -> ServerState -> ServerState
 modifyPlayer old new ss = ss {players = new : delete old (players ss)}
+
+-- # ServerState Object Manip
+
+-- Add a object to an existing ServerState
+addObject :: Object -> ServerState -> ServerState
+addObject obj ss = ss {objects = obj : objects ss}
+
+-- Drop an object
+dropObject :: Object -> ServerState -> ServerState
+dropObject obj ss = ss {objects = delete obj $ objects ss}
+
+-- # ServerState Other Manip # --
+incrementTick :: ServerState -> ServerState
+incrementTick ss = ss {currentTick = currentTick ss + 1}
+
+performUCs :: Player -> ServerState -> ServerState
+performUCs p ss = foldl performUC ss ucs
+  where
+    ucs = userCmds p
+
+performUC :: ServerState -> UserCommand -> ServerState
+performUC = undefined
 
 -- # Player Helpers # --
 

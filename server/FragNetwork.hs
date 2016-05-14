@@ -40,7 +40,7 @@ onConnection pending = do
       -- check if the rules say they can join mid game
       if joinMidGame r
         -- Add them to the game
-        then addConnAsPlayer conn (InGame (0,0,0)) >>= waitInGame
+        then addConnAsPlayer conn Respawning >>= waitInGame
         -- Give the user an error message
         else sendMessage conn "Server owner disabled joining mid game"
 
