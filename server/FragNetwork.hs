@@ -7,7 +7,6 @@ import FragUtil
 
 import qualified Network.WebSockets as WS
 import Control.Concurrent
-import qualified Data.Text as T
 
 onConnectionWrapper :: MVar ServerState -> WS.PendingConnection -> IO ()
 onConnectionWrapper st pend = runConnectionT st (onConnection pend)
