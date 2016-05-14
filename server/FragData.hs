@@ -62,3 +62,11 @@ newtype ConnectionT a = MkConnectionT {
 runConnectionT :: MVar ServerState -> ConnectionT a -> IO a
 runConnectionT mvar k = runReaderT (unwrapConnectionT k) mvar
 
+newtype GameCoreT a = MkGameCoreT {
+  unwrapGameCoreT :: ReaderT (MVar ServerState) IO a
+} deriving (Functor, Applicative, Monad, MonadReader (MVar ServerState), MonadIO)
+
+-- Unwrap a GameCoreT be running its reader and turning into regular IO
+runGameCoreT :: MVar ServerState -> GameCoreT a -> IO a
+runGameCoreT mvar k = runReaderT (unwrapGameCoreT k) mvar
+

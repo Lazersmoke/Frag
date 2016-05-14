@@ -30,15 +30,15 @@ sendMessage :: MonadIO m => WS.Connection -> String -> m ()
 sendMessage conn = io . WS.sendTextData conn . T.pack
 
 -- Tell a connection about the Game Stage
-tellGameStage :: WS.Connection -> ConnectionT ()
+tellGameStage :: (MonadIO m, MonadReader (MVar ServerState) m) => WS.Connection -> m ()
 tellGameStage = tellConnection $ ("Game Stage is " ++) . show . stage 
 
 -- Tell a connection the list of players
-tellPlayerList :: WS.Connection -> ConnectionT ()
+tellPlayerList :: (MonadIO m, MonadReader (MVar ServerState) m) => WS.Connection -> m ()
 tellPlayerList = tellConnection $ show . map name . players
 
 -- Tell a player something about the state
-tellConnection :: (ServerState -> String) -> WS.Connection -> ConnectionT ()
+tellConnection :: (MonadIO m, MonadReader (MVar ServerState) m) => (ServerState -> String) -> WS.Connection -> m ()
 tellConnection f conn = io
   . WS.sendTextData conn -- Then send it
   . T.pack -- Pack it into a text for sending
@@ -46,7 +46,7 @@ tellConnection f conn = io
   =<< grabState -- Grab the current game state
 
 -- Get a message and unpack it, in ConnectionT
-receiveMessage :: WS.Connection -> ConnectionT String
+receiveMessage :: MonadIO m => WS.Connection -> m String
 receiveMessage conn = T.unpack <$> (io . WS.receiveData $ conn)
 
 -- # MonadReader (MVar a) Helpers # --
