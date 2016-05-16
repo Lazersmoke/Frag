@@ -1,7 +1,8 @@
 {-# LANGUAGE FlexibleContexts #-}
 module FragUtil where
 
-import FragData
+import FragData 
+import FragCommands
 
 import qualified Network.WebSockets as WS
 import qualified Data.Text as T
@@ -9,11 +10,14 @@ import Data.List
 import Control.Concurrent
 import Control.Monad.Reader
 
+testServerState :: ServerState
+testServerState = addObject oneCube {vel = Vector (1,0,0)} . addObject oneCube {pos = Vector (10,0,0)} $ freshServerState
+
 -- # Monad Generics # --
 
 -- Pass an argument to two different actions, compose with >>, return second
-tee :: Monad m => a -> (a -> m c) -> (a -> m b) -> m b
-tee arg first second = first arg >> second arg
+tee :: Monad m => (a -> m c) -> (a -> m b) -> a -> m b
+tee first second arg = first arg >> second arg
 
 -- Switch on a bool, less pointful
 switch :: a -> a -> Bool -> a
@@ -23,33 +27,27 @@ switch yay nay sw = if sw then yay else nay
 io :: MonadIO m => IO a -> m a
 io = liftIO
 
--- # Connection Helpers # -- 
+-- # MonadReader (MVar a) Helpers # --
 
 -- Send a message in an IO Monad
 sendMessage :: MonadIO m => WS.Connection -> String -> m ()
 sendMessage conn = io . WS.sendTextData conn . T.pack
 
--- Tell a connection about the Game Stage
-tellGameStage :: (MonadIO m, MonadReader (MVar ServerState) m) => WS.Connection -> m ()
-tellGameStage = tellConnection $ ("Game Stage is " ++) . show . stage 
-
--- Tell a connection the list of players
-tellPlayerList :: (MonadIO m, MonadReader (MVar ServerState) m) => WS.Connection -> m ()
-tellPlayerList = tellConnection $ show . map name . players
-
--- Tell a player something about the state
-tellConnection :: (MonadIO m, MonadReader (MVar ServerState) m) => (ServerState -> String) -> WS.Connection -> m ()
-tellConnection f conn = io
-  . WS.sendTextData conn -- Then send it
-  . T.pack -- Pack it into a text for sending
-  . f -- Apply the user transform
-  =<< grabState -- Grab the current game state
-
 -- Get a message and unpack it, in ConnectionT
 receiveMessage :: MonadIO m => WS.Connection -> m String
 receiveMessage conn = T.unpack <$> (io . WS.receiveData $ conn)
 
--- # MonadReader (MVar a) Helpers # --
+-- Send a message to a player
+sendMessagePlayer :: MonadIO m => Player -> String -> m ()
+sendMessagePlayer pla = sendMessage (connection pla) 
+
+-- Parse a String to a UC
+parseUC :: (MonadIO m, MonadReader (MVar ServerState) m) => String -> m UserCommand
+parseUC text = grabState >>= \s -> return UserCommand {tick = currentTick s, command = text}
+
+-- Receive a message from a player
+receiveMessagePlayer :: MonadIO m => Player -> m String
+receiveMessagePlayer pla = receiveMessage (connection pla) 
 
 -- Read an MVar in a reader generically
 grabState :: (MonadIO m, MonadReader (MVar b) m) => m b
@@ -64,24 +62,26 @@ transformState :: (MonadIO m, MonadReader (MVar b) m) => (b -> b) -> m ()
 -- Compose with a return (to make it IO), then give it to transformStateIO
 transformState = transformStateIO . (return .)
 
-addConnAsPlayer :: WS.Connection -> PlayerStage -> ConnectionT Player
+addConnAsPlayer :: WS.Connection -> PlayerStatus -> ConnectionT Player
 addConnAsPlayer conn ps = do
   -- Ask client for their name
-  io $ WS.sendTextData conn (T.pack "What is your name?")
+  sendMessage conn "What is your name?"
   -- Wait for client to give their name
-  chosenName <- T.unpack <$> io (WS.receiveData conn)
+  chosenName <- receiveMessage conn
   -- Validate the chosen name and switch over it
   validatePlayerName chosenName >>= switch
     -- If valid
     (tee
+      (transformState . addPlayer) -- Add it to the state
+      return -- And return it
       Player { -- Make a new player
         name = chosenName, -- With the chosen name
         connection = conn,
-        playerStage = ps,
-        userCmds = []
+        status = ps,
+        userCmds = [],
+        ready = False,
+        object = emptyObject
         }
-      (transformState . addPlayer) -- Add it to the state
-      return -- And return it
     )
     -- If Invalid, ask again
     (addConnAsPlayer conn ps)
@@ -90,18 +90,6 @@ addConnAsPlayer conn ps = do
       validatePlayerName chosen = fmap ((&& length chosen < 50) . notElem chosen . map name . players) grabState
 
 -- # ServerState Player Manip # --
-
--- Add a player to an existing ServerState
-addPlayer :: Player -> ServerState -> ServerState
-addPlayer pla ss = ss {players = pla : players ss}
-
--- Drop a player
-dropPlayer :: Player -> ServerState -> ServerState
-dropPlayer pla ss = ss {players = delete pla $ players ss}
-
--- Change the first player to the second one
-modifyPlayer :: Player -> Player -> ServerState -> ServerState
-modifyPlayer old new ss = ss {players = new : delete old (players ss)}
 
 -- # ServerState Object Manip
 
@@ -114,32 +102,31 @@ dropObject :: Object -> ServerState -> ServerState
 dropObject obj ss = ss {objects = delete obj $ objects ss}
 
 -- # ServerState Other Manip # --
+
+-- Increment the Tick
 incrementTick :: ServerState -> ServerState
 incrementTick ss = ss {currentTick = currentTick ss + 1}
 
+startGame :: ServerState -> ServerState
+startGame ss = ss {phase = Playing, players = map (setStatus Respawning) (players ss)}
+-- Perform all uc's for the player
 performUCs :: Player -> ServerState -> ServerState
-performUCs p ss = foldl performUC ss ucs
+performUCs p ss = foldl (performUC p) ss ucs
   where
     ucs = userCmds p
 
-performUC :: ServerState -> UserCommand -> ServerState
-performUC = undefined
+-- Tell a connection about the Game Phase
+tellGamePhase :: (MonadIO m, MonadReader (MVar ServerState) m) => WS.Connection -> m ()
+tellGamePhase = tellConnection $ ("Game Phase is " ++) . show . phase 
 
--- # Player Helpers # --
+-- Tell a connection the list of players
+tellPlayerList :: (MonadIO m, MonadReader (MVar ServerState) m) => WS.Connection -> m ()
+tellPlayerList = tellConnection $ show . map name . players
 
--- Send a message to a player
-sendPlayerMessage :: MonadIO m => Player -> String -> m ()
-sendPlayerMessage pla = io . WS.sendTextData (connection pla) . T.pack
-
--- Set a player's stage
-setPlayerStage :: PlayerStage -> Player -> Player
-setPlayerStage ps pla = pla {playerStage = ps}
-
--- Add a UC to a player
-addUC :: UserCommand -> Player -> Player
-addUC uc pla = pla {userCmds = uc : userCmds pla}
-
--- Parse a String to a UC
-parseUC :: String -> ConnectionT UserCommand
-parseUC text = grabState >>= \s -> return UserCommand {tick = currentTick s, command = text}
-
+-- Tell a player something about the state
+tellConnection :: (MonadIO m, MonadReader (MVar ServerState) m) => (ServerState -> String) -> WS.Connection -> m ()
+tellConnection f conn = io
+  . WS.sendTextData conn -- Then send it
+  . T.pack -- Pack it into a text for sending
+  . f -- Apply the user transform
+  =<< grabState -- Grab the current game state

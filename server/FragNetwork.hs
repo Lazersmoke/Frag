@@ -18,73 +18,80 @@ onConnection pending = do
   conn <- io $ WS.acceptRequest pending
   -- Fork keep alive thread for shitty clients
   io $ WS.forkPingThread conn 30
-  -- Fetch the actual server state to check the game stage
-  gameStage <- stage <$> grabState
+  -- Fetch the actual server state to check the game phase
+  gameStage <- phase <$> grabState
   case gameStage of
     Lobby -> do
       -- Tell client that the server is in the lobby
-      tellGameStage conn
+      tellGamePhase conn
       -- Add that player to the game
-      newPlayer <- addConnAsPlayer conn (InLobby False)
+      newPlayer <- addConnAsPlayer conn InLobby
       -- Give the player the list of other players, fresh from the gamestate
       tellPlayerList conn
       -- Wait for more messages
-      waitInLobby newPlayer
+      waitForMessages newPlayer
     -- Tell them we are loading and thats it
-    Loading -> tellGameStage conn
+    Loading -> tellGamePhase conn
     Playing -> do
       -- Tell Client we are in game
-      tellGameStage conn
+      tellGamePhase conn
       -- Read the rules
       r <- rules <$> grabState
       -- check if the rules say they can join mid game
       if joinMidGame r
         -- Add them to the game
-        then addConnAsPlayer conn Respawning >>= waitInGame
+        then addConnAsPlayer conn Respawning >>= waitForMessages
         -- Give the user an error message
         else sendMessage conn "Server owner disabled joining mid game"
 
-waitInLobby :: Player -> ConnectionT ()
-waitInLobby player = do
-  grabState >>= io . print
+waitForMessages :: Player -> ConnectionT ()
+waitForMessages pla = do
   -- Wait for a new message
-  message <- receiveMessage $ connection player
+  message <- receiveMessage $ connection pla
+  ss <- grabState
+  (case phase ss of
+    Playing -> processMessageGame
+    Lobby -> processMessageLobby
+    Loading -> processMessageGame) pla message
+
+processMessageLobby :: Player -> String -> ConnectionT ()
+processMessageLobby player message = 
   case message of
     -- Player is readying up
     "Ready" -> 
       -- Using InLobby True
       tee
-        -- Using InLobby Ready
-        (setPlayerStage (InLobby True) player)
         -- Modify in Server
         (transformState . modifyPlayer player)
         -- Recurse
-        waitInLobby 
+        waitForMessages 
+        -- Set player ready
+        (setReady True player)
     -- Player is unreadying up
     "Unready" -> 
       tee
-        -- Using InLobby False
-        (setPlayerStage (InLobby False) player)
         -- Modify in Server
         (transformState . modifyPlayer player)
         -- Recurse
-        waitInLobby 
+        waitForMessages 
+        -- Using InLobby False
+        (setReady False player)
     "Quit" -> disconnect
-    _ -> sendPlayerMessage player "Invalid Lobby Message" >> disconnect
+    _ -> sendMessagePlayer player "Invalid Lobby Message" >> disconnect
   where
     disconnect = do
       transformState $ dropPlayer player
       mapM_ (tellPlayerList . connection) . players =<< grabState
 
 
-waitInGame :: Player -> ConnectionT()
-waitInGame pla = do
+processMessageGame :: Player -> String -> ConnectionT()
+processMessageGame pla mess = do
   -- Wait for a command
-  usercmd <- receiveMessage (connection pla) >>= parseUC
+  usercmd <- parseUC mess
   tee
-    -- Put command on player
-    (addUC usercmd pla)
     -- Add to state
     (transformState . modifyPlayer pla) 
     -- Recurse
-    waitInGame 
+    waitForMessages 
+    -- Put command on player
+    (addUC usercmd pla)
