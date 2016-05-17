@@ -19,23 +19,30 @@ mainWrapper ss = runGameCoreT ss mainLoop
 -- Loop that contains all game logic
 mainLoop :: GameCoreT ()
 mainLoop = do
-  -- Increment the tick every tick
-  transformState incrementTick
   -- Switch on game phase
   ss <- grabState
   case phase ss of
     Lobby -> 
       -- Start when everyone (at least one) is ready
       when (all ready (players ss) && (not . null $ players ss)) 
-        -- Start by phase = Playing and setting everyone to respawning
-        (transformState $ \s -> s {phase = Playing, players = map (setStatus Respawning) (players s)})
+        -- Start by setting phase to Playing and setting everyone to respawning
+        (transformState $ setPhase Playing . transformPlayers (setStatus Respawning))
     Loading -> return ()
     Playing -> do
-      forM_ (players ss) (transformState . performUCs)
       deltaTime <- getDeltaTime
-      transformState (doPhysics deltaTime)
+      transformState (
+        -- Increment the tick counter
+        incrementTick 
+        -- Do the physics
+        . doPhysics deltaTime
+        -- Do all the user actions
+        . (\x -> foldl (flip id) x . map performUCs $ players ss) 
+        )
+      -- Grab the new state
       grabState >>= tee
+        -- Send it to each player
         (\x -> forM_ (players x) $ flip sendMessagePlayer (show x))
+        -- Debug it to console
         (io . print)
   io $ threadDelay 100000
   mainLoop
@@ -68,8 +75,6 @@ resolveCollision obj allObjs = foldl res obj collidedObjs
         then orig {vel = negate $ vel orig}
         else orig
 
-dotProduct :: Num a => Vector a -> Vector a -> a
-dotProduct (Vector (ax,ay,az)) (Vector (bx,by,bz)) = (ax*bx)+(ay*by)+(az*bz)
 
 -- TODO: Actual collision physics
 doCollisionPhysics :: Double -> Object -> Object

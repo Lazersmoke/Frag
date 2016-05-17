@@ -63,6 +63,8 @@ freshServerState = ServerState {
   currentTick = 0
   }
 
+setPhase :: ServerPhase -> ServerState -> ServerState
+setPhase sp ss = ss {phase = sp}
 -- Add a player to an existing ServerState
 addPlayer :: Player -> ServerState -> ServerState
 addPlayer pla ss = ss {players = pla : players ss}
@@ -75,6 +77,9 @@ dropPlayer pla ss = ss {players = delete pla $ players ss}
 modifyPlayer :: Player -> Player -> ServerState -> ServerState
 modifyPlayer old new ss = ss {players = new : delete old (players ss)}
 
+-- Lifts map over player to work on ServerState's
+transformPlayers :: (Player -> Player) -> ServerState -> ServerState
+transformPlayers f ss = ss {players = map f $ players ss}
 
 ----------------
 -- # Player # --
@@ -151,19 +156,44 @@ emptyObject = Object {
 oneCube :: Object
 oneCube = emptyObject {size = 1}
 
+---------------------
+-- # World Plane # --
+---------------------
+
+data World = World {
+  geometry :: [WorldPlane]
+  }
+data WorldPlane = WorldPlane (Vector,Vector,Vector)
+
+normalWP :: WorldPlane -> Vector 
+normalWP (WorldPlane (v1,v2,v3)) = a
+  where
+    p1 = v2 - v1
+    p2 = v3 - v1
+    vx = vecY p1 * vecZ p2 - vecZ p1 * vecY p2
+    vy = vecZ p1 * vecX p2 - vecX p1 * vecZ p2
+    vz = vecX p1 * vecY p2 - vecY p1 * vecX p2
+    v = Vector (vx,vy,vz)
+    abssum = abs vx + abs vy + abs vz
+    a = scale (1/abssum) v
+
+repairWPIntersection :: Object -> WorldPlane -> Object
+repairWPIntersection obj wp = obj {vel = vel obj - scale (dotProduct (vel obj) (normalWP wp) / magnitude (normalWP wp)) (normalWP wp)}
+
 -----------------
 -- # Vectors # --
 -----------------
 
 -- Special Vector Names
-type Position = Vector Double
-type Direction = Vector Double
-type Velocity = Direction
+type Position = Vector 
+type Direction = Vector 
+type Velocity = Vector
 
--- Vector is a triple of nums
-newtype Num a => Vector a = Vector (a,a,a) deriving (Show,Eq)
+type VectorComp = Double
+-- Vector is a triple of doubles
+newtype Vector = Vector (VectorComp,VectorComp,VectorComp) deriving (Show,Eq)
 
-instance Num a => Num (Vector a) where
+instance Num Vector where
   (+) (Vector (ax,ay,az)) (Vector (bx,by,bz)) = Vector (ax+bx,ay+by,az+bz)
   (*) (Vector (ax,ay,az)) (Vector (bx,by,bz)) = Vector (ax*bx,ay*by,az*bz)
   negate (Vector (a,b,c)) = Vector (-a,-b,-c)
@@ -171,17 +201,37 @@ instance Num a => Num (Vector a) where
   signum (Vector (a,b,c)) = Vector (signum a, signum b, signum c)
   fromInteger a = Vector (fromInteger a,fromInteger a,fromInteger a)
 
-emptyVector :: Num a => Vector a
+emptyVector :: Vector 
 emptyVector = 0
 
+unitVector :: Vector 
+unitVector = 1
+
+magnitude :: Vector -> VectorComp
+magnitude (Vector (a,b,c)) = sqrt $ a**2 + b**2 + c**2
+
 -- Scale by a number (prefix synonym for (*))
-scale :: Num a => a -> Vector a -> Vector a
+scale :: VectorComp -> Vector -> Vector
 scale s = (Vector (s,s,s) *) 
 
+dotProduct :: Vector -> Vector -> VectorComp
+dotProduct (Vector (ax,ay,az)) (Vector (bx,by,bz)) = (ax*bx)+(ay*by)+(az*bz)
+
 -- Get components
-vecX :: Num a => Vector a -> a
+vecX :: Vector -> VectorComp
 vecX (Vector (a,_,_)) = a
-vecY :: Num a => Vector a -> a
+
+setVecX :: VectorComp -> Vector -> Vector
+setVecX a (Vector (_,b,c)) = Vector (a,b,c)
+
+vecY :: Vector -> VectorComp
 vecY (Vector (_,a,_)) = a
-vecZ :: Num a => Vector a -> a
+
+setVecY :: VectorComp -> Vector -> Vector
+setVecY b (Vector (a,_,c)) = Vector (a,b,c)
+
+vecZ :: Vector -> VectorComp
 vecZ (Vector (_,_,a)) = a
+
+setVecZ :: VectorComp -> Vector -> Vector
+setVecZ c (Vector (a,b,_)) = Vector (a,b,c)
