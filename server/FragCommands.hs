@@ -4,10 +4,18 @@ import FragData
 
 performUC :: Player -> ServerState -> UserCommand -> ServerState
 performUC p oldss uc = ($ oldss) . ($ p) $ case command uc of
-  "+forward" -> playerMove (Vector (0,0,1))
-  "-forward" -> playerMove (Vector (0,0,-1))
+  "+forward" -> playerMove (setVecZ 1)
+  "-forward" -> playerMove (setVecZ 0)
 
+  "+back" -> playerMove (setVecZ (-1))
+  "-back" -> playerMove (setVecZ 0)
+
+  "+right" -> playerMove (setVecX 1)
+  "-right" -> playerMove (setVecX 0)
+
+  "+left" -> playerMove (setVecX (-1))
+  "-left" -> playerMove (setVecX 0)
 
 type UCAction = Player -> ServerState -> ServerState
-playerMove :: Direction -> UCAction
-playerMove newwish p = modifyPlayer p (transformObject (\o -> o {wish = newwish}) p)
+playerMove :: (Vector -> Vector) -> UCAction
+playerMove f p = modifyPlayer p $ transformObject (transformWish f) p

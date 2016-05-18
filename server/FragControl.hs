@@ -36,7 +36,7 @@ mainLoop = do
         -- Do the physics
         . doPhysics deltaTime
         -- Do all the user actions
-        . (\x -> foldl (flip id) x . map performUCs $ players ss) 
+        . doUserCmds
         )
       -- Grab the new state
       grabState >>= tee
@@ -50,9 +50,17 @@ mainLoop = do
 getDeltaTime :: GameCoreT Double
 getDeltaTime = return 0.1
 
+doUserCmds :: ServerState -> ServerState
+doUserCmds ss = foldl (flip id) ss . map performUCs $ players ss
+
+-- Apply a list of homomorphisms in order
+listApFold :: [a -> a] -> a -> a
+listApFold list orig = foldl (flip id) orig list
+
 doPhysics :: Double -> ServerState -> ServerState
-doPhysics dt ss = ss {objects = resolveCollisions . updateObjects $ objects ss} -- . playersTransformed 
+doPhysics dt ss = ss {objects = map collideWithWorld . updateObjects $ objects ss} -- . playersTransformed 
   where
+    collideWithWorld = listApFold (map (\w x -> if intersectAABBWP (pos x) (pos x + size x) w then repairWPIntersection w x else x) . geometry . world $ ss)
     -- Move all objects to next location, regardless of any collisions
     updateObjects = map (doObjectPhysics dt) 
     -- Detect and correct collisions

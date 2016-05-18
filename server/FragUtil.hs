@@ -11,7 +11,7 @@ import Control.Concurrent
 import Control.Monad.Reader
 
 testServerState :: ServerState
-testServerState = addObject oneCube {vel = Vector (1,0,0)} . addObject oneCube {pos = Vector (10,0,0)} $ freshServerState
+testServerState = addObject oneCube {vel = Vector (-1,-1,-1)} $ freshServerState {world = World {geometry = [WorldPlane (setVecX 1 emptyVector, setVecY 1 emptyVector, setVecZ 1 emptyVector)], levelName = ""}}
 
 -- # Monad Generics # --
 
@@ -130,3 +130,74 @@ tellConnection f conn = io
   . T.pack -- Pack it into a text for sending
   . f -- Apply the user transform
   =<< grabState -- Grab the current game state
+
+---------------------
+-- # Vector Math # --
+---------------------
+
+-- get magnitude of a vector (distance formula)
+magnitude :: Vector -> VectorComp
+magnitude (Vector (a,b,c)) = sqrt $ a**2 + b**2 + c**2
+
+-- Scale by a number (prefix synonym for (*))
+scale :: VectorComp -> Vector -> Vector
+scale s = (Vector (s,s,s) *) 
+
+-- Dot product = sum of product of corresponding components
+dotProduct :: Vector -> Vector -> VectorComp
+dotProduct (Vector (ax,ay,az)) (Vector (bx,by,bz)) = (ax*bx)+(ay*by)+(az*bz)
+
+-- Right hand rule thing
+crossProduct :: Vector -> Vector -> Vector
+crossProduct (Vector (a1,a2,a3)) (Vector (b1,b2,b3)) = 
+  Vector 
+  (
+  a2 * b3 - a3 * b2,
+  a3 * b1 - a1 * b3,
+  a1 * b2 - a2 * b1
+  )
+
+-- Force the sum to be 1
+normalizeVector :: Vector -> Vector
+normalizeVector (Vector (v1,v2,v3)) = Vector (v1/a,v2/a,v3/a)
+  where
+    a = abs v1 + abs v2 + abs v3
+
+repairWPIntersection :: WorldPlane -> Object -> Object
+repairWPIntersection wp obj = obj {vel = vel obj + scale (negate dp) nor}
+  where
+    dp = dotProduct (vel obj) nor -- 1 if away, -1 if towards, 0 if _|_ etc
+    nor = normalWP wp
+
+normalWP :: WorldPlane -> Vector 
+normalWP (WorldPlane (v1,v2,v3)) = normalizeVector v
+  where
+    p1 = v2 - v1
+    p2 = v3 - v1
+    v = crossProduct p1 p2 
+
+intersectAABBWP :: Vector -> Vector -> WorldPlane -> Bool
+intersectAABBWP amin amax wp@(WorldPlane (v1,v2,v3)) = intersectAABBNormal || intersectWPNormal || intersectCross
+  where
+    wpCorners = [v1,v2,v3]
+    wpEdges = [v1-v3,v2-v1,v3-v2]
+    wpNormal = normalWP wp
+
+    intersectAABBNormal = not $ any aabbNormalClear unitVectors
+    aabbNormalClear axis = maximum (triProject axis) < minimum (map (extractUnit axis) wpCorners) || minimum (triProject axis) > maximum (map (extractUnit axis) wpCorners)
+
+    project :: [Vector] -> Vector -> [VectorComp]
+    project verts vec = map (dotProduct vec) verts
+    boxProject = project (aabbCorners amin amax)
+    triProject = project wpCorners
+
+    intersectWPNormal = not $ maximum wpProjections < wpNormalOffset || minimum wpProjections > wpNormalOffset
+    wpNormalOffset = dotProduct wpNormal v1
+    wpProjections = boxProject wpNormal
+
+    intersectCross = not $ or [crossCheck t b | t <- wpEdges, b <- unitVectors]
+    crossCheck tri box = maximum (boxCross tri box) < minimum (triCross tri box) || minimum (triCross tri box) > maximum (boxCross tri box)
+
+    boxCross tri box = boxProject (tri `crossProduct` box)
+    triCross tri box = triProject (tri `crossProduct` box)
+

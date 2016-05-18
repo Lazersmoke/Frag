@@ -38,6 +38,7 @@ data ServerPhase = Lobby | Loading | Playing deriving (Show,Eq)
 -- A tick is an integer
 type Tick = Integer
 data ServerState = ServerState {
+  world :: World,
   players :: [Player],
   objects :: [Object],
   phase :: ServerPhase,
@@ -53,6 +54,7 @@ data GameRules = Rules {
 -- Default Server State
 freshServerState :: ServerState
 freshServerState = ServerState {
+  world = World {levelName = "", geometry = []},
   players = [],
   objects = [],
   phase = Lobby,
@@ -156,29 +158,18 @@ emptyObject = Object {
 oneCube :: Object
 oneCube = emptyObject {size = 1}
 
+transformWish :: (Direction -> Direction) -> Object -> Object
+transformWish f obj = obj {wish = f $ wish obj}
+
 ---------------------
 -- # World Plane # --
 ---------------------
 
 data World = World {
+  levelName :: String,
   geometry :: [WorldPlane]
-  }
-data WorldPlane = WorldPlane (Vector,Vector,Vector)
-
-normalWP :: WorldPlane -> Vector 
-normalWP (WorldPlane (v1,v2,v3)) = a
-  where
-    p1 = v2 - v1
-    p2 = v3 - v1
-    vx = vecY p1 * vecZ p2 - vecZ p1 * vecY p2
-    vy = vecZ p1 * vecX p2 - vecX p1 * vecZ p2
-    vz = vecX p1 * vecY p2 - vecY p1 * vecX p2
-    v = Vector (vx,vy,vz)
-    abssum = abs vx + abs vy + abs vz
-    a = scale (1/abssum) v
-
-repairWPIntersection :: Object -> WorldPlane -> Object
-repairWPIntersection obj wp = obj {vel = vel obj - scale (dotProduct (vel obj) (normalWP wp) / magnitude (normalWP wp)) (normalWP wp)}
+  } deriving (Show, Eq)
+data WorldPlane = WorldPlane (Vector,Vector,Vector) deriving (Show, Eq)
 
 -----------------
 -- # Vectors # --
@@ -207,15 +198,27 @@ emptyVector = 0
 unitVector :: Vector 
 unitVector = 1
 
-magnitude :: Vector -> VectorComp
-magnitude (Vector (a,b,c)) = sqrt $ a**2 + b**2 + c**2
+unitVectors :: [Vector]
+unitVectors = map (($ unitVector) . ($ 1)) [setVecX,setVecY,setVecZ]
 
--- Scale by a number (prefix synonym for (*))
-scale :: VectorComp -> Vector -> Vector
-scale s = (Vector (s,s,s) *) 
+extractUnit :: Vector -> Vector -> VectorComp
+extractUnit (Vector (0,0,1)) = vecZ
+extractUnit (Vector (0,1,0)) = vecY
+extractUnit (Vector (1,0,0)) = vecX
+-- TODO: Fix this evil af code
+extractUnit _ = const 0
 
-dotProduct :: Vector -> Vector -> VectorComp
-dotProduct (Vector (ax,ay,az)) (Vector (bx,by,bz)) = (ax*bx)+(ay*by)+(az*bz)
+aabbCorners :: Vector -> Vector -> [Vector]
+aabbCorners (Vector (ax,ay,az)) (Vector (bx,by,bz)) =
+  [Vector (ax,ay,az)
+  ,Vector (bx,ay,az)
+  ,Vector (ax,by,az)
+  ,Vector (bx,by,az)
+  ,Vector (ax,ay,bz)
+  ,Vector (bx,ay,bz)
+  ,Vector (ax,by,bz)
+  ,Vector (bx,by,bz)
+  ]
 
 -- Get components
 vecX :: Vector -> VectorComp
