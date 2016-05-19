@@ -159,15 +159,17 @@ crossProduct (Vector (a1,a2,a3)) (Vector (b1,b2,b3)) =
 
 -- Force the sum to be 1
 normalizeVector :: Vector -> Vector
-normalizeVector (Vector (v1,v2,v3)) = Vector (v1/a,v2/a,v3/a)
-  where
-    a = abs v1 + abs v2 + abs v3
+normalizeVector vec = vec / magnitude vec 
 
 repairWPIntersection :: WorldPlane -> Object -> Object
-repairWPIntersection wp obj = obj {vel = vel obj + scale (negate dp) nor}
+repairWPIntersection wp obj = obj {vel = newvel}
   where
     dp = dotProduct (vel obj) nor -- 1 if away, -1 if towards, 0 if _|_ etc
+    newvel = if dp > 0
+      then vel obj
+      else vel obj + scale (springCo * dp) nor -- questionable method
     nor = normalWP wp
+    springCo = 1.1
 
 normalWP :: WorldPlane -> Vector 
 normalWP (WorldPlane (v1,v2,v3)) = normalizeVector v
@@ -183,7 +185,7 @@ intersectAABBWP amin amax wp@(WorldPlane (v1,v2,v3)) = intersectAABBNormal || in
     wpEdges = [v1-v3,v2-v1,v3-v2]
     wpNormal = normalWP wp
 
-    intersectAABBNormal = not $ any aabbNormalClear unitVectors
+    intersectAABBNormal = any (not . aabbNormalClear) unitVectors
     aabbNormalClear axis = maximum (triProject axis) < minimum (map (extractUnit axis) wpCorners) || minimum (triProject axis) > maximum (map (extractUnit axis) wpCorners)
 
     project :: [Vector] -> Vector -> [VectorComp]
@@ -195,7 +197,7 @@ intersectAABBWP amin amax wp@(WorldPlane (v1,v2,v3)) = intersectAABBNormal || in
     wpNormalOffset = dotProduct wpNormal v1
     wpProjections = boxProject wpNormal
 
-    intersectCross = not $ or [crossCheck t b | t <- wpEdges, b <- unitVectors]
+    intersectCross = or [crossCheck t b | t <- wpEdges, b <- unitVectors]
     crossCheck tri box = maximum (boxCross tri box) < minimum (triCross tri box) || minimum (triCross tri box) > maximum (boxCross tri box)
 
     boxCross tri box = boxProject (tri `crossProduct` box)

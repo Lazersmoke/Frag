@@ -48,7 +48,7 @@ mainLoop = do
   mainLoop
 
 getDeltaTime :: GameCoreT Double
-getDeltaTime = return 0.1
+getDeltaTime = return 0.01
 
 doUserCmds :: ServerState -> ServerState
 doUserCmds ss = foldl (flip id) ss . map performUCs $ players ss
