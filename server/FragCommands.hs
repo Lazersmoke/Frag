@@ -15,7 +15,11 @@ performUC p oldss uc = ($ oldss) . ($ p) $ case command uc of
 
   "+left" -> playerMove (setVecX (-1))
   "-left" -> playerMove (setVecX 0)
+  _ -> noAct
 
 type UCAction = Player -> ServerState -> ServerState
 playerMove :: (Vector -> Vector) -> UCAction
 playerMove f p = modifyPlayer p $ transformObject (transformWish f) p
+
+noAct :: UCAction
+noAct _ = id

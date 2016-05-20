@@ -159,7 +159,7 @@ crossProduct (Vector (a1,a2,a3)) (Vector (b1,b2,b3)) =
 
 -- Force the sum to be 1
 normalizeVector :: Vector -> Vector
-normalizeVector vec = vec / magnitude vec 
+normalizeVector vec = scale (1 / magnitude vec) vec 
 
 repairWPIntersection :: WorldPlane -> Object -> Object
 repairWPIntersection wp obj = obj {vel = newvel}
@@ -178,28 +178,40 @@ normalWP (WorldPlane (v1,v2,v3)) = normalizeVector v
     p2 = v3 - v1
     v = crossProduct p1 p2 
 
-intersectAABBWP :: Vector -> Vector -> WorldPlane -> Bool
-intersectAABBWP amin amax wp@(WorldPlane (v1,v2,v3)) = intersectAABBNormal || intersectWPNormal || intersectCross
+intersectAABBWP :: AABB -> WorldPlane -> Bool
+intersectAABBWP aabb wp@(WorldPlane (v1,v2,v3)) = 
+  -- If there is no separating axis, then they must intersect
+  not $ foundClearAABBNormal || foundClearWPNormal || foundClearCrossProduct
   where
     wpCorners = [v1,v2,v3]
     wpEdges = [v1-v3,v2-v1,v3-v2]
     wpNormal = normalWP wp
 
-    intersectAABBNormal = any (not . aabbNormalClear) unitVectors
-    aabbNormalClear axis = maximum (triProject axis) < minimum (map (extractUnit axis) wpCorners) || minimum (triProject axis) > maximum (map (extractUnit axis) wpCorners)
+    -- Unit vectors are the normals to an AABB
+    foundClearAABBNormal = any aabbNormalClear unitVectors
+    -- True if the WP is fully off to one side of the box on the given axis
+    aabbNormalClear axis = areSeparated (projectWP wp axis) (map (extractUnit axis) wpCorners)
 
-    project :: [Vector] -> Vector -> [VectorComp]
-    project verts vec = map (dotProduct vec) verts
-    boxProject = project (aabbCorners amin amax)
-    triProject = project wpCorners
-
-    intersectWPNormal = not $ maximum wpProjections < wpNormalOffset || minimum wpProjections > wpNormalOffset
+    -- True if the box is fully on one side of the WP's infinite plane
+    foundClearWPNormal = areSeparated (projectAABB aabb wpNormal) [wpNormalOffset] 
     wpNormalOffset = dotProduct wpNormal v1
-    wpProjections = boxProject wpNormal
 
-    intersectCross = or [crossCheck t b | t <- wpEdges, b <- unitVectors]
-    crossCheck tri box = maximum (boxCross tri box) < minimum (triCross tri box) || minimum (triCross tri box) > maximum (boxCross tri box)
+    -- True if any of the cross products between aabb normals and triangle edges are a separating plane
+    foundClearCrossProduct = or [areSeparated (boxCross t b) (triCross t b) | t <- wpEdges, b <- unitVectors]
 
-    boxCross tri box = boxProject (tri `crossProduct` box)
-    triCross tri box = triProject (tri `crossProduct` box)
+    -- Project the AABB onto the cross vector
+    boxCross tri box = projectAABB aabb (tri `crossProduct` box)
+    -- Project the WP onto the cross vector
+    triCross tri box = projectWP wp (tri `crossProduct` box)
 
+project :: [Vector] -> Vector -> [VectorComp]
+project verts vec = map (dotProduct vec) verts
+
+projectAABB :: AABB -> Vector -> [VectorComp]
+projectAABB aabb = project (aabbCorners aabb)
+
+projectWP :: WorldPlane -> Vector -> [VectorComp]
+projectWP (WorldPlane (v1,v2,v3)) = project [v1,v2,v3]
+
+areSeparated :: Ord a => [a] -> [a] -> Bool
+areSeparated a b = maximum a < minimum b || minimum a > maximum b

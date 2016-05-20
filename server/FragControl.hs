@@ -5,7 +5,6 @@ import FragData
 import FragUtil
 import Control.Monad
 import Control.Concurrent
-import Data.List
 {- Control Flow:
  - incrementTick
  - check players for UCs 
@@ -60,16 +59,19 @@ listApFold list orig = foldl (flip id) orig list
 doPhysics :: Double -> ServerState -> ServerState
 doPhysics dt ss = ss {objects = map collideWithWorld . updateObjects $ objects ss} -- . playersTransformed 
   where
-    collideWithWorld = listApFold (map (\w x -> if intersectAABBWP (pos x) (pos x + size x) w then repairWPIntersection w x else x) . geometry . world $ ss)
+    collideWithWorld = listApFold (map (\w x -> if intersectAABBWP (objAABB x) w then repairWPIntersection w x else x) . geometry . world $ ss)
     -- Move all objects to next location, regardless of any collisions
     updateObjects = map (doObjectPhysics dt) 
+    -- DEPRECATED:
     -- Detect and correct collisions
-    resolveCollisions objs = map (\x -> switch (resolveCollision x objs) x (hasCollision x objs)) objs
+    --resolveCollisions objs = map (\x -> switch (resolveCollision x objs) x (hasCollision x objs)) objs
     --nonCollide objs = filter (\x -> not $ any (intersection x) (delete x objs)) objs
       
 doObjectPhysics :: Double -> Object -> Object
 doObjectPhysics dt obj = obj {pos = scale dt (vel obj) + pos obj}
 
+{-
+ - This code used to deal with Object-Object physics before WPs were a thing. Code is really bad, though
 hasCollision :: Object -> [Object] -> Bool
 hasCollision obj = any (intersection obj) . delete obj 
 
@@ -97,7 +99,7 @@ intersection a b = not $ c vecX || c vecY || c vecZ
     bo = pos b
     at = size a + pos a
     bt = size b + pos b
-
+-}
 {-
  - Resolve all object collisions
  - Move each object to next position

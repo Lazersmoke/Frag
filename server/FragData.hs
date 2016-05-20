@@ -161,6 +161,9 @@ oneCube = emptyObject {size = 1}
 transformWish :: (Direction -> Direction) -> Object -> Object
 transformWish f obj = obj {wish = f $ wish obj}
 
+objAABB :: Object -> AABB
+objAABB o = (pos o, pos o + size o)
+
 ---------------------
 -- # World Plane # --
 ---------------------
@@ -179,6 +182,7 @@ data WorldPlane = WorldPlane (Vector,Vector,Vector) deriving (Show, Eq)
 type Position = Vector 
 type Direction = Vector 
 type Velocity = Vector
+type AABB = (Vector,Vector)
 
 type VectorComp = Double
 -- Vector is a triple of doubles
@@ -208,8 +212,8 @@ extractUnit (Vector (1,0,0)) = vecX
 -- TODO: Fix this evil af code
 extractUnit _ = const 0
 
-aabbCorners :: Vector -> Vector -> [Vector]
-aabbCorners (Vector (ax,ay,az)) (Vector (bx,by,bz)) =
+aabbCorners :: AABB -> [Vector]
+aabbCorners (Vector (ax,ay,az), Vector (bx,by,bz)) =
   [Vector (ax,ay,az)
   ,Vector (bx,ay,az)
   ,Vector (ax,by,az)
