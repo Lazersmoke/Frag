@@ -11,7 +11,7 @@ import Control.Concurrent
 import Control.Monad.Reader
 
 testServerState :: ServerState
-testServerState = addObject oneCube {vel = Vector (-1,-1,-1)} $ freshServerState {world = World {geometry = [WorldPlane (setVecX 1 emptyVector, setVecY 1 emptyVector, setVecZ 1 emptyVector)], levelName = ""}}
+testServerState = addObject oneCube {wish = Vector (1,0,0), vel = Vector (-1,-1,-1)} $ freshServerState {world = World {geometry = [WorldPlane (setVecX 1 emptyVector, setVecY 1 emptyVector, setVecZ 1 emptyVector)], levelName = "testlevel"}}
 
 -- # Monad Generics # --
 
@@ -80,7 +80,7 @@ addConnAsPlayer conn ps = do
         status = ps,
         userCmds = [],
         ready = False,
-        object = emptyObject
+        object = emptyObject {size = Vector (0.1,0.1,0.1)}
         }
     )
     -- If Invalid, ask again
@@ -109,11 +109,7 @@ incrementTick ss = ss {currentTick = currentTick ss + 1}
 
 startGame :: ServerState -> ServerState
 startGame ss = ss {phase = Playing, players = map (setStatus Respawning) (players ss)}
--- Perform all uc's for the player
-performUCs :: Player -> ServerState -> ServerState
-performUCs p ss = foldl (performUC p) ss ucs
-  where
-    ucs = userCmds p
+
 
 -- Tell a connection about the Game Phase
 tellGamePhase :: (MonadIO m, MonadReader (MVar ServerState) m) => WS.Connection -> m ()
@@ -159,7 +155,9 @@ crossProduct (Vector (a1,a2,a3)) (Vector (b1,b2,b3)) =
 
 -- Force the sum to be 1
 normalizeVector :: Vector -> Vector
-normalizeVector vec = scale (1 / magnitude vec) vec 
+normalizeVector vec = scale cleansed vec 
+  where
+    cleansed = if magnitude vec > 0 then 1 / magnitude vec else 0
 
 repairWPIntersection :: WorldPlane -> Object -> Object
 repairWPIntersection wp obj = obj {vel = newvel}

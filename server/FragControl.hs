@@ -1,8 +1,8 @@
-
 module FragControl where
 
 import FragData
 import FragUtil
+import FragCommands
 import Control.Monad
 import Control.Concurrent
 {- Control Flow:
@@ -21,7 +21,8 @@ mainLoop = do
   -- Switch on game phase
   ss <- grabState
   case phase ss of
-    Lobby -> 
+    Lobby -> do
+      transformState $ transformPlayers updateReady
       -- Start when everyone (at least one) is ready
       when (all ready (players ss) && (not . null $ players ss)) 
         -- Start by setting phase to Playing and setting everyone to respawning
@@ -29,6 +30,7 @@ mainLoop = do
     Loading -> return ()
     Playing -> do
       deltaTime <- getDeltaTime
+      grabState >>= (io . print . map command . concatMap userCmds . players)
       transformState (
         -- Increment the tick counter
         incrementTick 
@@ -40,36 +42,51 @@ mainLoop = do
       -- Grab the new state
       grabState >>= tee
         -- Send it to each player
-        (\x -> forM_ (players x) $ flip sendMessagePlayer (show x))
+        tellPlayersState
         -- Debug it to console
-        (io . print)
+        (io . print . map command . concatMap userCmds . players)
   io $ threadDelay 100000
   mainLoop
+
+updateReady :: Player -> Player
+updateReady p
+  | "Ready" `elem` map command (userCmds p) = p {ready = True}
+  | "Unready" `elem` map command (userCmds p) = p {ready = False}
+  | otherwise = p
 
 getDeltaTime :: GameCoreT Double
 getDeltaTime = return 0.01
 
-doUserCmds :: ServerState -> ServerState
-doUserCmds ss = foldl (flip id) ss . map performUCs $ players ss
 
--- Apply a list of homomorphisms in order
-listApFold :: [a -> a] -> a -> a
-listApFold list orig = foldl (flip id) orig list
+tellPlayersState :: ServerState -> GameCoreT ()
+tellPlayersState ss = io . forM_ (players ss) $ flip sendMessagePlayer (generateMessage ss)
+
 
 doPhysics :: Double -> ServerState -> ServerState
-doPhysics dt ss = ss {objects = map collideWithWorld . updateObjects $ objects ss} -- . playersTransformed 
+doPhysics dt ss = ss {
+  objects = map (collideWithWorld . tickPosition . tickAcceleration) (objects ss),
+  players = map (transformObject collideWithWorld . transformObject tickPosition . transformObject tickAcceleration) (players ss)}
   where
     collideWithWorld = listApFold (map (\w x -> if intersectAABBWP (objAABB x) w then repairWPIntersection w x else x) . geometry . world $ ss)
     -- Move all objects to next location, regardless of any collisions
-    updateObjects = map (doObjectPhysics dt) 
-    -- DEPRECATED:
-    -- Detect and correct collisions
-    --resolveCollisions objs = map (\x -> switch (resolveCollision x objs) x (hasCollision x objs)) objs
-    --nonCollide objs = filter (\x -> not $ any (intersection x) (delete x objs)) objs
+    tickAcceleration = tickObjectAcceleration dt
+    tickPosition = tickObjectPosition dt 
       
-doObjectPhysics :: Double -> Object -> Object
-doObjectPhysics dt obj = obj {pos = scale dt (vel obj) + pos obj}
+tickObjectPosition :: Double -> Object -> Object
+tickObjectPosition dt obj = obj {pos = scale dt (vel obj) + pos obj}
 
+tickObjectAcceleration :: Double -> Object -> Object
+tickObjectAcceleration dt obj = obj {vel = scale accelSpeed wishDir + vel obj}
+  where
+    -- Break wish vec into components
+    wishDir = normalizeVector $ wish obj
+    wishSpeed = magnitude $ wish obj
+    -- Current speed, as dot product on wishDir
+    currSpeed = dotProduct wishDir (vel obj) 
+    -- Max speed that we can add
+    addSpeed = max (wishSpeed - currSpeed) 0
+    -- Actual speed to add
+    accelSpeed = min (12 * dt * wishSpeed) addSpeed
 {-
  - This code used to deal with Object-Object physics before WPs were a thing. Code is really bad, though
 hasCollision :: Object -> [Object] -> Bool

@@ -1,9 +1,11 @@
+{-# LANGUAGE TupleSections #-}
 module FragCommands where
 
 import FragData
+import Debug.Trace
 
-performUC :: Player -> ServerState -> UserCommand -> ServerState
-performUC p oldss uc = ($ oldss) . ($ p) $ case command uc of
+performUC :: UserCommand -> Player -> Player
+performUC uc = case traceShowId (command uc) of
   "+forward" -> playerMove (setVecZ 1)
   "-forward" -> playerMove (setVecZ 0)
 
@@ -17,9 +19,18 @@ performUC p oldss uc = ($ oldss) . ($ p) $ case command uc of
   "-left" -> playerMove (setVecX 0)
   _ -> noAct
 
-type UCAction = Player -> ServerState -> ServerState
+type UCAction = Player -> Player
+-- transform the object by transforming the wish
 playerMove :: (Vector -> Vector) -> UCAction
-playerMove f p = modifyPlayer p $ transformObject (transformWish f) p
+playerMove = transformObject . transformWish
 
 noAct :: UCAction
-noAct _ = id
+noAct = id
+
+-- Apply a list of homomorphisms in order
+listApFold :: [a -> a] -> a -> a
+listApFold list orig = foldl (flip id) orig list
+
+-- For each player, get and S -> S, then put them all in a list, concat, and apFold
+doUserCmds :: ServerState -> ServerState
+doUserCmds s = s {players = map (\p -> foldl (flip performUC) p {userCmds = []} (userCmds p)) (players s)}

@@ -83,6 +83,14 @@ modifyPlayer old new ss = ss {players = new : delete old (players ss)}
 transformPlayers :: (Player -> Player) -> ServerState -> ServerState
 transformPlayers f ss = ss {players = map f $ players ss}
 
+generateMessage :: ServerState -> String
+generateMessage s = "{\"objects\":" ++ genObjListMessage (objects s) ++ ", \"players\": " ++ genObjListMessage (map object $ players s) ++ "}"
+  where
+    genObjListMessage objs = "[" ++ (intercalate "," . map genObjMessage $ objs) ++ "]"
+    genObjMessage obj = "{\"pos\":" ++ genVecMessage (pos obj) ++ ",\"size\":" ++ genVecMessage (size obj) ++ "}"
+    genVecMessage v = "{\"x\":" ++ show (vecX v) ++ ",\"y\":" ++ show (vecY v) ++ ",\"z\":" ++ show (vecZ v) ++ "}"
+
+
 ----------------
 -- # Player # --
 ----------------
@@ -101,7 +109,7 @@ data Player = Player {
   }
 
 instance Show Player where
-  show p = name p ++ "/" ++ (show . status) p
+  show p = name p ++ "/" ++ (show . status) p ++ "<|" ++ show (object p) ++ "|>"
 
 instance Eq Player where
   (==) a b = name a == name b
@@ -186,7 +194,10 @@ type AABB = (Vector,Vector)
 
 type VectorComp = Double
 -- Vector is a triple of doubles
-newtype Vector = Vector (VectorComp,VectorComp,VectorComp) deriving (Show,Eq)
+newtype Vector = Vector (VectorComp,VectorComp,VectorComp) deriving (Eq)
+
+instance Show Vector where
+  show (Vector (x,y,z)) = "<" ++ show x ++ " " ++ show y ++ " " ++ show z ++ ">"
 
 instance Num Vector where
   (+) (Vector (ax,ay,az)) (Vector (bx,by,bz)) = Vector (ax+bx,ay+by,az+bz)

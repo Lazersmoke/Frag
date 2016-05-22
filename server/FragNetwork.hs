@@ -29,7 +29,7 @@ onConnection pending = do
       -- Give the player the list of other players, fresh from the gamestate
       tellPlayerList conn
       -- Wait for more messages
-      waitForMessages newPlayer
+      waitForMessages (name newPlayer) (connection newPlayer)
     -- Tell them we are loading and thats it
     Loading -> tellGamePhase conn
     Playing -> do
@@ -40,22 +40,12 @@ onConnection pending = do
       -- check if the rules say they can join mid game
       if joinMidGame r
         -- Add them to the game
-        then addConnAsPlayer conn Respawning >>= waitForMessages
+        then addConnAsPlayer conn Respawning >>= \p -> waitForMessages (name p) (connection p)
         -- Give the user an error message
         else sendMessage conn "Server owner disabled joining mid game"
-
-waitForMessages :: Player -> ConnectionT ()
-waitForMessages pla = do
-  -- Wait for a new message
-  message <- receiveMessage $ connection pla
-  ss <- grabState
-  (case phase ss of
-    Playing -> processMessageGame
-    Lobby -> processMessageLobby
-    Loading -> processMessageGame) pla message
-
+{-
 processMessageLobby :: Player -> String -> ConnectionT ()
-processMessageLobby player message = 
+processMessageLobby plaName message = 
   case message of
     -- Player is readying up
     "Ready" -> 
@@ -83,15 +73,13 @@ processMessageLobby player message =
       transformState $ dropPlayer player
       mapM_ (tellPlayerList . connection) . players =<< grabState
 
-
-processMessageGame :: Player -> String -> ConnectionT()
-processMessageGame pla mess = do
-  -- Wait for a command
-  usercmd <- parseUC mess
-  tee
-    -- Add to state
-    (transformState . modifyPlayer pla) 
-    -- Recurse
-    waitForMessages 
-    -- Put command on player
-    (addUC usercmd pla)
+-}
+waitForMessages :: String -> WS.Connection -> ConnectionT()
+waitForMessages plaName conn = do
+  message <- receiveMessage conn
+  -- parse the UC
+  usercmd <- parseUC message
+  -- Add it to the player
+  transformState $ transformPlayers (\x -> if name x == plaName then addUC usercmd x else x)
+  -- Recurse
+  waitForMessages plaName conn
