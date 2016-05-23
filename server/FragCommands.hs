@@ -2,10 +2,11 @@
 module FragCommands where
 
 import FragData
+import FragUtil
 import Debug.Trace
 
-performUC :: UserCommand -> Player -> Player
-performUC uc = case traceShowId (command uc) of
+performUC :: Player -> UserCommand -> ServerState -> ServerState
+performUC p uc = ($ p) $ case traceShowId (command uc) of
   "+forward" -> playerMove (setVecZ 1)
   "-forward" -> playerMove (setVecZ 0)
 
@@ -19,18 +20,23 @@ performUC uc = case traceShowId (command uc) of
   "-left" -> playerMove (setVecX 0)
   _ -> noAct
 
-type UCAction = Player -> Player
+type UCAction = Player -> ServerState -> ServerState
 -- transform the object by transforming the wish
 playerMove :: (Vector -> Vector) -> UCAction
-playerMove = transformObject . transformWish
+playerMove v p = transformPlayers (\x -> if x == p then transformObject (transformWish v) x else x)
 
 noAct :: UCAction
-noAct = id
+noAct _ = id
 
--- Apply a list of homomorphisms in order
-listApFold :: [a -> a] -> a -> a
-listApFold list orig = foldl (flip id) orig list
+performUCs :: Player -> [UserCommand] -> ServerState -> ServerState
+performUCs _ [] = id 
+performUCs p (x:y) = performUCs p y . performUC p x
 
 -- For each player, get and S -> S, then put them all in a list, concat, and apFold
 doUserCmds :: ServerState -> ServerState
-doUserCmds s = s {players = map (\p -> foldl (flip performUC) p {userCmds = []} (userCmds p)) (players s)}
+doUserCmds s = emptyCmds . (listApFold . map (\p -> performUCs p (userCmds p)) $ players s) $ s
+  where
+    emptyCmds = transformPlayers (\p -> p {userCmds = []}) 
+
+-- +forward command
+-- Set the player's wish to 0 0 1

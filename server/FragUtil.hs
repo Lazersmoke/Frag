@@ -2,7 +2,6 @@
 module FragUtil where
 
 import FragData 
-import FragCommands
 
 import qualified Network.WebSockets as WS
 import qualified Data.Text as T
@@ -26,6 +25,10 @@ switch yay nay sw = if sw then yay else nay
 -- Make this shorter 
 io :: MonadIO m => IO a -> m a
 io = liftIO
+
+-- Apply a list of homomorphisms in order
+listApFold :: [a -> a] -> a -> a
+listApFold = foldl (flip (.)) id 
 
 -- # MonadReader (MVar a) Helpers # --
 
@@ -90,6 +93,11 @@ addConnAsPlayer conn ps = do
       validatePlayerName chosen = fmap ((&& length chosen < 50) . notElem chosen . map name . players) grabState
 
 -- # ServerState Player Manip # --
+updateReady :: Player -> Player
+updateReady p
+  | "Ready" `elem` map command (userCmds p) = p {ready = True}
+  | "Unready" `elem` map command (userCmds p) = p {ready = False}
+  | otherwise = p
 
 -- # ServerState Object Manip
 
