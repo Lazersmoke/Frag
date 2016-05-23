@@ -83,6 +83,10 @@ modifyPlayer old new ss = ss {players = new : delete old (players ss)}
 transformPlayers :: (Player -> Player) -> ServerState -> ServerState
 transformPlayers f ss = ss {players = map f $ players ss}
 
+-- Lifts map over objects to work on ServerState's
+transformObjects :: (Object -> Object) -> ServerState -> ServerState
+transformObjects f ss = ss {objects = map f $ objects ss}
+
 generateMessage :: ServerState -> String
 generateMessage s = "{\"objects\":" ++ genObjListMessage (objects s) ++ ", \"players\": " ++ genObjListMessage (map object $ players s) ++ "}"
   where

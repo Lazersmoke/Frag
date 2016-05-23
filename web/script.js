@@ -5,7 +5,7 @@ var renderer = new THREE.WebGLRenderer();
 renderer.setSize( window.innerWidth, window.innerHeight );
 document.body.appendChild( renderer.domElement );
 
-var material = new THREE.MeshBasicMaterial( { color: 0x00ff00 } );
+var material = new THREE.MeshBasicMaterial( { color: 0x00ff00, wireframe:true } );
 
 camera.position.z = 5;
 
@@ -26,7 +26,7 @@ sock.onclose = function(e){
 sock.onmessage = function(e){
   console.log(e.data)
   parsed = JSON.parse(e.data)
-  objectList = parsed.players
+  objectList = parsed.players.concat(parsed.objects)
   scene.children = []
   objectList.forEach(function(a){
     var newbox = new THREE.BoxGeometry(a.size.x,a.size.y,a.size.z)

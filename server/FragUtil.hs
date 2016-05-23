@@ -10,7 +10,7 @@ import Control.Concurrent
 import Control.Monad.Reader
 
 testServerState :: ServerState
-testServerState = addObject oneCube {wish = Vector (1,0,0), vel = Vector (-1,-1,-1)} $ freshServerState {world = World {geometry = [WorldPlane (setVecX 1 emptyVector, setVecY 1 emptyVector, setVecZ 1 emptyVector)], levelName = "testlevel"}}
+testServerState = addObject oneCube {wish = Vector (1,0,0), vel = Vector (-1,-1,-1)} $ freshServerState {world = World {geometry = [WorldPlane (Vector (-20,-2,-20), Vector (0,-2,20), Vector (20,-2,-20))], levelName = "testlevel"}}
 
 -- # Monad Generics # --
 
@@ -173,7 +173,7 @@ repairWPIntersection wp obj = obj {vel = newvel}
     dp = dotProduct (vel obj) nor -- 1 if away, -1 if towards, 0 if _|_ etc
     newvel = if dp > 0
       then vel obj
-      else vel obj + scale (springCo * dp) nor -- questionable method
+      else vel obj - scale (springCo * dp) nor -- questionable method
     nor = normalWP wp
     springCo = 1.1
 

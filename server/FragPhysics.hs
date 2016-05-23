@@ -1,26 +1,33 @@
 module FragPhysics where
 import FragData
 import FragUtil
+
 doPhysics :: Double -> ServerState -> ServerState
-doPhysics dt ss = ss {
-  objects = map (collideWithWorld . tickPosition . tickGravity . tickAcceleration) (objects ss),
-  players = map (transformObject collideWithWorld . transformObject tickPosition . transformObject tickGravity . transformObject tickAcceleration) (players ss)}
-  where
-    collideWithWorld = listApFold (map (\w x -> if intersectAABBWP (objAABB x) w then repairWPIntersection w x else x) . geometry . world $ ss)
+doPhysics dt ss = transformObjects (doObjectPhysics dt ss) . transformPlayers (doPlayerPhysics dt ss) $ ss 
     -- Move all objects to next location, regardless of any collisions
-    tickAcceleration = tickObjectAcceleration dt
-    tickPosition = tickObjectPosition dt 
-    tickGravity = applyGravity dt 
-      
-tickObjectPosition :: Double -> Object -> Object
-tickObjectPosition dt obj = obj {pos = scale dt (vel obj) + pos obj}
+
+-- Move an object, all said and done
+doObjectPhysics :: Double -> ServerState -> Object -> Object
+doObjectPhysics dt s = collideWithWorld . tickPosition dt . applyGravity dt . tickAcceleration dt
+  where
+    collideWithWorld = listApFold (map (\w x -> if intersectAABBWP (objAABB x) w then repairWPIntersection w x else x) . geometry . world $ s)
+
+-- Do physics on a player; let objectphysics soak extra arguments
+doPlayerPhysics :: Double -> ServerState -> Player -> Player
+doPlayerPhysics = (transformObject .) . doObjectPhysics 
+
+-- Move by velocity
+tickPosition :: Double -> Object -> Object
+tickPosition dt obj = obj {pos = scale dt (vel obj) + pos obj}
 
 --TODO: FACTOR OUT MAGIC NUMBER
+-- Apply gravity to velocity
 applyGravity :: Double -> Object -> Object
 applyGravity dt obj = obj {vel = vel obj - Vector (0,1 * dt,0)}
 
-tickObjectAcceleration :: Double -> Object -> Object
-tickObjectAcceleration dt obj = obj {vel = scale accelSpeed wishDir + vel obj}
+-- Apply internal acceleration to velocity
+tickAcceleration :: Double -> Object -> Object
+tickAcceleration dt obj = obj {vel = scale accelSpeed wishDir + vel obj}
   where
     -- Break wish vec into components
     wishDir = normalizeVector $ wish obj
