@@ -2,9 +2,9 @@
 
 module Main where
 
-import FragUtil
-import FragNetwork
-import FragControl
+import PurityUtil
+import PurityNetwork
+import PurityControl
 
 import Control.Concurrent
 import qualified Network.WebSockets as WS
