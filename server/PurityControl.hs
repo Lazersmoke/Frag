@@ -15,44 +15,41 @@ import Data.Time.Clock.POSIX
  -}
 
 -- Wraps up main loop to a nice IO ()
-mainWrapper :: MVar ServerState -> IO ()
-mainWrapper ss = runGameCoreT ss (io getPOSIXTime >>= mainLoop)
+startMainLoop :: MVar ServerState -> IO ()
+startMainLoop ss = getPOSIXTime >>= mainLoop ss
 
 -- Loop that contains all game logic
-mainLoop :: POSIXTime -> GameCoreT ()
-mainLoop lastTickStart = do
+mainLoop :: MVar ServerState -> POSIXTime -> IO ()
+mainLoop mvss lastTickStart = do
   -- Switch on game phase
-  ss <- grabState
-  tickStartTime <- io getPOSIXTime 
+  ss <- readMVar mvss
+  tickStartTime <- getPOSIXTime 
   let dt = realToFrac $ tickStartTime - lastTickStart
   case phase ss of
     Lobby -> do
-      transformState $ transformPlayers updateReady
+      modifyMVar_ mvss $ return . transformPlayers updateReady
       -- Start when everyone (at least one) is ready
       when (all ready (players ss) && (not . null $ players ss)) 
         -- Start by setting phase to Playing and setting everyone to respawning
-        (transformState $ setPhase Playing . transformPlayers (setStatus Respawning))
+        (modifyMVar_ mvss $ return . setPhase Playing . transformPlayers (setStatus Respawning))
     Loading -> return ()
     Playing -> do
-      transformState (
+      modifyMVar_ mvss (return
         -- Increment the tick counter
-        incrementTick 
+        . incrementTick 
         -- Do the physics
         . doPhysics dt
         -- Do all the user actions
         . doUserCmds
         )
       -- Grab the new state
-      grabState >>= tee
+      readMVar mvss >>= tee
         -- Send it to each player
         tellPlayersState
         -- Debug it to console
         (\_ -> return ()) -- (io . print . map command . concatMap userCmds . players)
-  io $ threadDelay 10000
-  mainLoop tickStartTime
+  threadDelay 10000
+  mainLoop mvss tickStartTime
 
-getDeltaTime :: GameCoreT Double
-getDeltaTime = return 0.01
-
-tellPlayersState :: ServerState -> GameCoreT ()
-tellPlayersState ss = io . forM_ (players ss) $ flip sendMessagePlayer (generateMessage ss)
+tellPlayersState :: ServerState -> IO ()
+tellPlayersState ss = forM_ (players ss) $ flip sendMessagePlayer (generateMessage ss)

@@ -20,10 +20,11 @@ render();
 sock = new WebSocket("ws://potatobox.no-ip.info:9160")
 sock.onopen = function(e){
   console.log("Socket Opened")
+  document.getElementById("connect").disabled = ''
+  document.getElementById("ready").disabled = ''
 }
 sock.onclose = function(e){}
 sock.onmessage = function(e){
-  console.log(e.data)
   parsed = JSON.parse(e.data)
   objectList = parsed.players.concat(parsed.objects)
 
@@ -85,10 +86,16 @@ var $point = function(x, y, z){
   this.z = z
 }
 document.getElementById("ready").onclick = function(){
-  sock.send("Ready")
+  if(sock.readyState == sock.OPEN){
+    sock.send("Ready")
+    document.getElementById("connect").style.display = 'none'
+    document.getElementById("ready").style.display = 'none'
+  }
 }
 document.getElementById("connect").onclick = function(){
-  sock.send("asdf")
+  if(sock.readyState == sock.OPEN){
+    sock.send("asdf")
+  }
 }
 
 document.onkeydown = keyDownHandler
@@ -97,22 +104,29 @@ document.onkeyup = keyUpHandler
 var keystates = {87: false,65: false, 83: false,68: false}
 
 var currentMouse = {x: 0, y: 0}
-renderer.domElement.requestPointerLock = 
-  renderer.domElement.requestPointerLock || 
-  renderer.domElement.mozRequestPointerLock || 
-  renderer.domElement.webkitRequestPointerLock;
-renderer.domElement.requestPointerLock()
-document.addEventListener("mousemove", mouseMoveHandler, false);
+ple = document.getElementsByTagName("canvas")[0]
+ple.requestPointerLock = 
+  ple.requestPointerLock || 
+  ple.mozRequestPointerLock || 
+  ple.webkitRequestPointerLock;
+ple.onclick = function(){
+  ple.requestPointerLock()
+  ple.addEventListener("mousemove", mouseMoveHandler, false);
+}
+ple.addEventListener("pointerlockchange", changeCall, false);
+ple.addEventListener("mozpointerlockchange", changeCall, false);
 
-var lastMouse = {x: 0, y:0}
+function changeCall(e){
+  console.log("change")
+}
+delta = {}
 function mouseMoveHandler(e){
-  console.log("hi")
-  delta = {}
-  delta.x = e.clientX - lastMouse.x
-  delta.y = e.clientY - lastMouse.y
-  console.log("target = " + "look " + delta.x + " " + delta.y)
-  sock.send("look " + (0-delta.x) + " " + (0-delta.y))
-  lastMouse = {x: e.clientX, y: e.clientY}
+  delta.x = e.movementX || e.mozMovementX || 0
+  delta.y = e.movementY || e.mozMovementY || 0
+  console.log(delta.x)
+  if(sock.readyState == sock.OPEN && document.pointerLockElement === ple || document.mozPointerLockElement === ple){
+    sock.send("look " + (0-delta.x) + " " + (0-delta.y))
+  }
 }
 
 function keyDownHandler(e){

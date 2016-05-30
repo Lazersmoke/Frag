@@ -2,31 +2,7 @@
 module PurityData where
 
 import qualified Network.WebSockets as WS
-import Control.Concurrent
-import Control.Monad.Reader
 import Data.List
-
-----------------------------
--- # Monad Transformers # --
-----------------------------
-
--- For handling incoming connections
-newtype ConnectionT a = MkConnectionT {
-  unwrapConnectionT :: ReaderT (MVar ServerState) IO a
-} deriving (Functor, Applicative, Monad, MonadReader (MVar ServerState), MonadIO)
-
--- Unwrap a ConnectionT be running its reader and turning into regular IO
-runConnectionT :: MVar ServerState -> ConnectionT a -> IO a
-runConnectionT mvar k = runReaderT (unwrapConnectionT k) mvar
-
--- For game logic
-newtype GameCoreT a = MkGameCoreT {
-  unwrapGameCoreT :: ReaderT (MVar ServerState) IO a
-} deriving (Functor, Applicative, Monad, MonadReader (MVar ServerState), MonadIO)
-
--- Unwrap a GameCoreT be running its reader and turning into regular IO
-runGameCoreT :: MVar ServerState -> GameCoreT a -> IO a
-runGameCoreT mvar k = runReaderT (unwrapGameCoreT k) mvar
 
 ---------------------
 -- # ServerState # --
@@ -152,6 +128,8 @@ data Object = Object {
   size :: Direction,
   vel :: Velocity,
   dir :: Direction,
+  pitch :: VectorComp,
+  yaw :: VectorComp,
   wish :: Direction
   } deriving Eq
 
@@ -164,6 +142,8 @@ emptyObject = Object {
   size = emptyVector,
   vel = emptyVector,
   dir = emptyVector,
+  pitch = 0,
+  yaw = 0,
   wish = emptyVector
   }
 

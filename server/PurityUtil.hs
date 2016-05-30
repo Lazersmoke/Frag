@@ -6,6 +6,7 @@ import PurityData
 import qualified Network.WebSockets as WS
 import qualified Data.Text as T
 import Data.List
+import Data.Maybe
 import Control.Concurrent
 import Control.Monad.Reader
 
@@ -48,7 +49,7 @@ listApFold = foldl (flip (.)) id
 sendMessage :: MonadIO m => WS.Connection -> String -> m ()
 sendMessage conn = io . WS.sendTextData conn . T.pack
 
--- Get a message and unpack it, in ConnectionT
+-- Get a message and unpack it, in IO Monad
 receiveMessage :: MonadIO m => WS.Connection -> m String
 receiveMessage conn = T.unpack <$> (io . WS.receiveData $ conn)
 
@@ -56,9 +57,9 @@ receiveMessage conn = T.unpack <$> (io . WS.receiveData $ conn)
 sendMessagePlayer :: MonadIO m => Player -> String -> m ()
 sendMessagePlayer pla = sendMessage (connection pla) 
 
--- Parse a String to a UC
-parseUC :: (MonadIO m, MonadReader (MVar ServerState) m) => String -> m UserCommand
-parseUC text = grabState >>= \s -> return UserCommand {tick = currentTick s, command = text}
+-- Parse a String to a UC by stamping it with the tick
+parseUC :: MVar ServerState -> String -> IO UserCommand
+parseUC ss text = readMVar ss >>= \s -> return UserCommand {tick = currentTick s, command = text}
 
 -- Receive a message from a player
 receiveMessagePlayer :: MonadIO m => Player -> m String
@@ -77,8 +78,8 @@ transformState :: (MonadIO m, MonadReader (MVar b) m) => (b -> b) -> m ()
 -- Compose with a return (to make it IO), then give it to transformStateIO
 transformState = transformStateIO . (return .)
 
-addConnAsPlayer :: WS.Connection -> PlayerStatus -> ConnectionT Player
-addConnAsPlayer conn ps = do
+addConnAsPlayer :: MVar ServerState -> WS.Connection -> PlayerStatus -> IO Player
+addConnAsPlayer ss conn ps = do
   -- Ask client for their name
   sendMessage conn "What is your name?"
   -- Wait for client to give their name
@@ -87,7 +88,7 @@ addConnAsPlayer conn ps = do
   validatePlayerName chosenName >>= switch
     -- If valid
     (tee
-      (transformState . addPlayer) -- Add it to the state
+      (\p -> modifyMVar_ ss (return . addPlayer p)) -- Add it to the state
       return -- And return it
       Player { -- Make a new player
         name = chosenName, -- With the chosen name
@@ -99,10 +100,10 @@ addConnAsPlayer conn ps = do
         }
     )
     -- If Invalid, ask again
-    (addConnAsPlayer conn ps)
+    (addConnAsPlayer ss conn ps)
     where
       -- Not in current player list and less than 50 long
-      validatePlayerName chosen = fmap ((&& length chosen < 50) . notElem chosen . map name . players) grabState
+      validatePlayerName chosen = fmap ((&& length chosen < 50) . notElem chosen . map name . players) (readMVar ss)
 
 -- # ServerState Player Manip # --
 updateReady :: Player -> Player
@@ -132,20 +133,20 @@ startGame ss = ss {phase = Playing, players = map (setStatus Respawning) (player
 
 
 -- Tell a connection about the Game Phase
-tellGamePhase :: (MonadIO m, MonadReader (MVar ServerState) m) => WS.Connection -> m ()
-tellGamePhase = tellConnection $ ("Game Phase is " ++) . show . phase 
+tellGamePhase :: MVar ServerState -> WS.Connection -> IO ()
+tellGamePhase ss = tellConnection ss $ ("Game Phase is " ++) . show . phase 
 
 -- Tell a connection the list of players
-tellPlayerList :: (MonadIO m, MonadReader (MVar ServerState) m) => WS.Connection -> m ()
-tellPlayerList = tellConnection $ show . map name . players
+tellPlayerList :: MVar ServerState -> WS.Connection -> IO ()
+tellPlayerList ss = tellConnection ss $ show . map name . players
 
 -- Tell a player something about the state
-tellConnection :: (MonadIO m, MonadReader (MVar ServerState) m) => (ServerState -> String) -> WS.Connection -> m ()
-tellConnection f conn = io
+tellConnection :: MVar ServerState -> (ServerState -> String) -> WS.Connection -> IO ()
+tellConnection ss f conn = io 
   . WS.sendTextData conn -- Then send it
   . T.pack -- Pack it into a text for sending
   . f -- Apply the user transform
-  =<< grabState -- Grab the current game state
+  =<< io (readMVar ss) -- Grab the current game state
 
 ---------------------
 -- # Vector Math # --
@@ -185,6 +186,35 @@ normalWP (WorldPlane (v1,v2,v3)) = normalizeVector v
     p1 = v2 - v1
     p2 = v3 - v1
     v = crossProduct p1 p2 
+
+facingDir :: Object -> Vector
+facingDir o = rotatePitchYaw (pitch o) (yaw o) (Vector (0,0,1))
+
+asRadians :: Floating a => a -> a
+asRadians = (* pi) . (/180)
+
+maybeRead :: Read a => String -> Maybe a
+maybeRead = fmap fst . listToMaybe . reads
+
+
+parseVector :: String -> Maybe Vector
+parseVector str =
+    case map maybeRead w of
+      [Just x, Just y, Just z] -> Just $ Vector (x, y, z)
+      _ -> Nothing
+  where
+    w = words str
+
+-- Credit to /u/Taylee <3
+rotatePitchYaw :: VectorComp -> VectorComp -> Vector -> Vector
+rotatePitchYaw dPitch dYaw (Vector (x,y,z)) = 
+  Vector
+  (cos dYaw * x + sin dYaw * (sin dPitch * y + cos dPitch * z)
+  ,cos dPitch * y - sin dPitch * z
+  ,- sin dYaw * x + cos dYaw * (sin dPitch * y + cos dPitch * z)
+  )
+
+
 
 intersectAABBWP :: AABB -> WorldPlane -> Bool
 intersectAABBWP aabb wp@(WorldPlane (v1,v2,v3)) = 

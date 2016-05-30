@@ -3,7 +3,6 @@ module PurityCommands where
 
 import PurityData
 import PurityUtil
-import Data.Maybe
 
 performUC :: Player -> UserCommand -> ServerState -> ServerState
 performUC p uc = ($ p) $ case firstWord $ command uc of
@@ -32,56 +31,29 @@ type UCAction = Player -> ServerState -> ServerState
 playerMove :: (Vector -> Vector) -> UCAction
 playerMove v = transformPlayersObject (transformWish v) 
 
--- transform the object by transforming the wish
 playerLook :: String -> UCAction
-playerLook command = case map maybeRead delta of
-  [Just dx, Just dy] -> transformPlayersObject (\o -> o {dir = rotatePitchYaw (sens * dy) (sens * dx) (dir o)})
-  -- Const drops the player arg; Invalid delta means no movement for anyone
-  _ -> const id
+playerLook cmd = case map maybeRead delta of
+  -- If the deltas were read ok, then transform the object
+  [Just dx, Just dy] -> 
+    transformPlayersObject (\o -> 
+      o{
+      -- Add mouse delta to yaw
+      yaw = yaw o + sens * dx,
+      -- Add mouse delta to pitch
+      pitch = pitch o + sens * dy
+      }
+    )
+  -- If the deltas are invalid then don't do anything
+  _ -> noAct
   where
-    delta = drop 1 $ words command
-    sens = 0.1
-
-asRadians :: Floating a => a -> a
-asRadians = (* pi) . (/180)
-
--- Credit to /u/Taylee <3
-rotatePitchYaw :: VectorComp -> VectorComp -> Vector -> Vector
-rotatePitchYaw pitch yaw (Vector (x,y,z)) = 
-  Vector
-  (cos yaw * x + sin yaw * (sin pitch * y + cos pitch * z)
-  ,cos pitch * y - sin pitch * z
-  ,negate (sin yaw * x) + cos yaw * (sin pitch * y + cos pitch * z)
-  )
-
--- sin( pitch ) = y coord
-getPitch :: Vector -> VectorComp
-getPitch v = asin $ vecY nor
-  where
-    nor = normalizeVector v
-
-getYaw :: Vector -> VectorComp
-getYaw v = asin . (/cos (getPitch v)) $ vecX nor
-  where
-    nor = normalizeVector v
-
-maybeRead :: Read a => String -> Maybe a
-maybeRead = fmap fst . listToMaybe . reads
-
-parseVector :: String -> Maybe Vector
-parseVector str =
-    case map maybeRead w of
-      [Just x, Just y, Just z] -> Just $ Vector (x, y, z)
-      _ -> Nothing
-  where
-    w = words str
-
+    delta = drop 1 $ words cmd
+    sens = 0.01
 
 transformPlayersObject :: (Object -> Object) -> UCAction
 transformPlayersObject f p = transformPlayers (\x -> if x == p then transformObject f x else x)
 
 noAct :: UCAction
-noAct _ = id
+noAct = const id
 
 performUCs :: Player -> [UserCommand] -> ServerState -> ServerState
 performUCs _ [] = id 

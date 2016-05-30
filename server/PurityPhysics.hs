@@ -28,19 +28,17 @@ applyGravity dt obj = obj {vel = vel obj - Vector (0,9 * dt,0)}
 
 -- Apply internal acceleration to velocity
 tickAcceleration :: Double -> Object -> Object
-tickAcceleration dt obj = obj {vel = scale accelSpeed wishDir + vel obj}
+tickAcceleration dt obj = obj {vel = scale accelSpeed absWish + vel obj}
   where
-    -- Break wish vec into components
-    wishDir = normalizeVector $ wish obj
-    absWishDir = wishDir
-    wishSpeed = magnitude $ wish obj
+    -- wishDir is relative to local coords, so we need to convert to abs coords to move (rotation only)
+    absWish = wish obj
     -- Current speed, as dot product on wishDir
-    currSpeed = dotProduct wishDir (vel obj) 
+    currSpeed = dotProduct (normalizeVector absWish) (vel obj) 
     -- Max speed that we can add
-    addSpeed = max (wishSpeed - currSpeed) 0
+    addSpeed = max (magnitude absWish - currSpeed) 0
     -- Actual speed to add
     --TODO: FACTOR OUT MAGIC NUMBER
-    accelSpeed = min (12 * dt * wishSpeed) addSpeed
+    accelSpeed = min (12 * dt * magnitude absWish) addSpeed
 
 repairWPIntersection :: WorldPlane -> Object -> Object
 repairWPIntersection wp obj = traceShowId $ obj {vel = newvel}
