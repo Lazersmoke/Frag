@@ -2,8 +2,6 @@ module PurityPhysics where
 import PurityData
 import PurityUtil
 
-import Debug.Trace
-
 doPhysics :: Double -> ServerState -> ServerState
 doPhysics dt ss = transformObjects (doObjectPhysics dt ss) . transformPlayers (doPlayerPhysics dt ss) $ ss 
 
@@ -41,7 +39,7 @@ tickAcceleration dt obj = obj {vel = scale accelSpeed absWish + vel obj}
     accelSpeed = min (12 * dt * magnitude absWish) addSpeed
 
 repairWPIntersection :: WorldPlane -> Object -> Object
-repairWPIntersection wp obj = traceShowId $ obj {vel = newvel}
+repairWPIntersection wp obj = obj {vel = newvel}
   where
     dp = dotProduct (vel obj) nor -- 1 if away, -1 if towards, 0 if _|_ etc
     newvel = if dp > 0
