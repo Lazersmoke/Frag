@@ -8,7 +8,6 @@ import qualified Data.Text as T
 import Data.List
 import Data.Maybe
 import Control.Concurrent
-import Control.Monad.Reader
 
 testServerState :: ServerState
 testServerState = addObject oneCube 
@@ -35,10 +34,6 @@ tee first second arg = first arg >> second arg
 switch :: a -> a -> Bool -> a
 switch yay nay sw = if sw then yay else nay
 
--- Make this shorter 
-io :: MonadIO m => IO a -> m a
-io = liftIO
-
 -- Apply a list of homomorphisms in order
 listApFold :: [a -> a] -> a -> a
 listApFold = foldl (flip (.)) id 
@@ -46,15 +41,15 @@ listApFold = foldl (flip (.)) id
 -- # MonadReader (MVar a) Helpers # --
 
 -- Send a message in an IO Monad
-sendMessage :: MonadIO m => WS.Connection -> String -> m ()
-sendMessage conn = io . WS.sendTextData conn . T.pack
+sendMessage :: WS.Connection -> String -> IO ()
+sendMessage conn = WS.sendTextData conn . T.pack
 
 -- Get a message and unpack it, in IO Monad
-receiveMessage :: MonadIO m => WS.Connection -> m String
-receiveMessage conn = T.unpack <$> (io . WS.receiveData $ conn)
+receiveMessage :: WS.Connection -> IO String
+receiveMessage conn = T.unpack <$> WS.receiveData conn
 
 -- Send a message to a player
-sendMessagePlayer :: MonadIO m => Player -> String -> m ()
+sendMessagePlayer :: Player -> String -> IO ()
 sendMessagePlayer pla = sendMessage (connection pla) 
 
 -- Parse a String to a UC by stamping it with the tick
@@ -62,21 +57,8 @@ parseUC :: MVar ServerState -> String -> IO UserCommand
 parseUC ss text = readMVar ss >>= \s -> return UserCommand {tick = currentTick s, command = text}
 
 -- Receive a message from a player
-receiveMessagePlayer :: MonadIO m => Player -> m String
+receiveMessagePlayer :: Player -> IO String
 receiveMessagePlayer pla = receiveMessage (connection pla) 
-
--- Read an MVar in a reader generically
-grabState :: (MonadIO m, MonadReader (MVar b) m) => m b
-grabState = ask >>= io . readMVar
-
--- Trasform the MVar/Reader state with IO
-transformStateIO :: (MonadIO m, MonadReader (MVar b) m) => (b -> IO b) -> m ()
-transformStateIO f = ask >>= io . flip modifyMVar_ f
-
--- Transform the MVar/Reader state without IO
-transformState :: (MonadIO m, MonadReader (MVar b) m) => (b -> b) -> m ()
--- Compose with a return (to make it IO), then give it to transformStateIO
-transformState = transformStateIO . (return .)
 
 addConnAsPlayer :: MVar ServerState -> WS.Connection -> PlayerStatus -> IO Player
 addConnAsPlayer ss conn ps = do
@@ -142,11 +124,11 @@ tellPlayerList ss = tellConnection ss $ show . map name . players
 
 -- Tell a player something about the state
 tellConnection :: MVar ServerState -> (ServerState -> String) -> WS.Connection -> IO ()
-tellConnection ss f conn = io 
-  . WS.sendTextData conn -- Then send it
+tellConnection ss f conn = 
+  WS.sendTextData conn -- Then send it
   . T.pack -- Pack it into a text for sending
   . f -- Apply the user transform
-  =<< io (readMVar ss) -- Grab the current game state
+  =<< readMVar ss -- Grab the current game state
 
 ---------------------
 -- # Vector Math # --
