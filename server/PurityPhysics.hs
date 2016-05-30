@@ -2,13 +2,14 @@ module PurityPhysics where
 import PurityData
 import PurityUtil
 
+import Debug.Trace
+
 doPhysics :: Double -> ServerState -> ServerState
 doPhysics dt ss = transformObjects (doObjectPhysics dt ss) . transformPlayers (doPlayerPhysics dt ss) $ ss 
-    -- Move all objects to next location, regardless of any collisions
 
 -- Move an object, all said and done
 doObjectPhysics :: Double -> ServerState -> Object -> Object
-doObjectPhysics dt s = collideWithWorld . tickPosition dt . applyGravity dt . tickAcceleration dt
+doObjectPhysics dt s = tickPosition dt . collideWithWorld . applyGravity dt . tickAcceleration dt
   where
     collideWithWorld = listApFold (map (\w x -> if intersectAABBWP (objAABB x) w then repairWPIntersection w x else x) . geometry . world $ s)
 
@@ -23,7 +24,7 @@ tickPosition dt obj = obj {pos = scale dt (vel obj) + pos obj}
 --TODO: FACTOR OUT MAGIC NUMBER
 -- Apply gravity to velocity
 applyGravity :: Double -> Object -> Object
-applyGravity dt obj = obj {vel = vel obj - Vector (0,1 * dt,0)}
+applyGravity dt obj = obj {vel = vel obj - Vector (0,9 * dt,0)}
 
 -- Apply internal acceleration to velocity
 tickAcceleration :: Double -> Object -> Object
@@ -31,6 +32,7 @@ tickAcceleration dt obj = obj {vel = scale accelSpeed wishDir + vel obj}
   where
     -- Break wish vec into components
     wishDir = normalizeVector $ wish obj
+    absWishDir = wishDir
     wishSpeed = magnitude $ wish obj
     -- Current speed, as dot product on wishDir
     currSpeed = dotProduct wishDir (vel obj) 
@@ -39,6 +41,17 @@ tickAcceleration dt obj = obj {vel = scale accelSpeed wishDir + vel obj}
     -- Actual speed to add
     --TODO: FACTOR OUT MAGIC NUMBER
     accelSpeed = min (12 * dt * wishSpeed) addSpeed
+
+repairWPIntersection :: WorldPlane -> Object -> Object
+repairWPIntersection wp obj = traceShowId $ obj {vel = newvel}
+  where
+    dp = dotProduct (vel obj) nor -- 1 if away, -1 if towards, 0 if _|_ etc
+    newvel = if dp > 0
+      then vel obj
+      else vel obj - scale (springCo * dp) nor -- questionable method
+    nor = normalWP wp
+    springCo = 1
+
 {-
  - This code used to deal with Object-Object physics before WPs were a thing. Code is really bad, though
 hasCollision :: Object -> [Object] -> Bool

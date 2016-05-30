@@ -4,8 +4,10 @@ import PurityData
 import PurityPhysics
 import PurityUtil
 import PurityCommands
+
 import Control.Monad
 import Control.Concurrent
+import Data.Time.Clock.POSIX
 {- Control Flow:
  - incrementTick
  - check players for UCs 
@@ -14,13 +16,15 @@ import Control.Concurrent
 
 -- Wraps up main loop to a nice IO ()
 mainWrapper :: MVar ServerState -> IO ()
-mainWrapper ss = runGameCoreT ss mainLoop
+mainWrapper ss = runGameCoreT ss (io getPOSIXTime >>= mainLoop)
 
 -- Loop that contains all game logic
-mainLoop :: GameCoreT ()
-mainLoop = do
+mainLoop :: POSIXTime -> GameCoreT ()
+mainLoop lastTickStart = do
   -- Switch on game phase
   ss <- grabState
+  tickStartTime <- io getPOSIXTime 
+  let dt = realToFrac $ tickStartTime - lastTickStart
   case phase ss of
     Lobby -> do
       transformState $ transformPlayers updateReady
@@ -30,13 +34,11 @@ mainLoop = do
         (transformState $ setPhase Playing . transformPlayers (setStatus Respawning))
     Loading -> return ()
     Playing -> do
-      deltaTime <- getDeltaTime
-      grabState >>= (io . print . map command . concatMap userCmds . players)
       transformState (
         -- Increment the tick counter
         incrementTick 
         -- Do the physics
-        . doPhysics deltaTime
+        . doPhysics dt
         -- Do all the user actions
         . doUserCmds
         )
@@ -45,15 +47,12 @@ mainLoop = do
         -- Send it to each player
         tellPlayersState
         -- Debug it to console
-        (io . print . map command . concatMap userCmds . players)
-  io $ threadDelay 100000
-  mainLoop
+        (\_ -> return ()) -- (io . print . map command . concatMap userCmds . players)
+  io $ threadDelay 10000
+  mainLoop tickStartTime
 
 getDeltaTime :: GameCoreT Double
 getDeltaTime = return 0.01
 
 tellPlayersState :: ServerState -> GameCoreT ()
 tellPlayersState ss = io . forM_ (players ss) $ flip sendMessagePlayer (generateMessage ss)
-
-
-

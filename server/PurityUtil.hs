@@ -10,7 +10,19 @@ import Control.Concurrent
 import Control.Monad.Reader
 
 testServerState :: ServerState
-testServerState = addObject oneCube {wish = Vector (1,0,0), vel = Vector (-1,-1,-1)} $ freshServerState {world = World {geometry = [WorldPlane (Vector (-20,-2,-20), Vector (0,-2,20), Vector (20,-2,-20))], levelName = "testlevel"}}
+testServerState = addObject oneCube 
+  {wish = Vector (1,0,0)
+  ,vel = Vector (-1,-1,-1)
+  } $ freshServerState 
+    {world = 
+      World
+      {geometry = 
+        [WorldPlane (Vector (-5,-2,-5), Vector (-5,-2,5), Vector (5,-2,5))
+        ,WorldPlane (Vector (-5,-2,-5), Vector (5,-2,5), Vector (5,-2,-5))
+        ]
+      ,levelName = "testlevel"
+      }
+  }
 
 -- # Monad Generics # --
 
@@ -167,16 +179,6 @@ normalizeVector vec = scale cleansed vec
   where
     cleansed = if magnitude vec > 0 then 1 / magnitude vec else 0
 
-repairWPIntersection :: WorldPlane -> Object -> Object
-repairWPIntersection wp obj = obj {vel = newvel}
-  where
-    dp = dotProduct (vel obj) nor -- 1 if away, -1 if towards, 0 if _|_ etc
-    newvel = if dp > 0
-      then vel obj
-      else vel obj - scale (springCo * dp) nor -- questionable method
-    nor = normalWP wp
-    springCo = 1.1
-
 normalWP :: WorldPlane -> Vector 
 normalWP (WorldPlane (v1,v2,v3)) = normalizeVector v
   where
@@ -196,7 +198,7 @@ intersectAABBWP aabb wp@(WorldPlane (v1,v2,v3)) =
     -- Unit vectors are the normals to an AABB
     foundClearAABBNormal = any aabbNormalClear unitVectors
     -- True if the WP is fully off to one side of the box on the given axis
-    aabbNormalClear axis = areSeparated (projectWP wp axis) (map (extractUnit axis) wpCorners)
+    aabbNormalClear axis = areSeparated (projectWP wp axis) (map (vecSum . (* axis)) wpCorners)
 
     -- True if the box is fully on one side of the WP's infinite plane
     foundClearWPNormal = areSeparated (projectAABB aabb wpNormal) [wpNormalOffset] 

@@ -91,7 +91,7 @@ generateMessage :: ServerState -> String
 generateMessage s = "{\"objects\":" ++ genObjListMessage (objects s) ++ ", \"players\": " ++ genObjListMessage (map object $ players s) ++ "}"
   where
     genObjListMessage objs = "[" ++ (intercalate "," . map genObjMessage $ objs) ++ "]"
-    genObjMessage obj = "{\"pos\":" ++ genVecMessage (pos obj) ++ ",\"size\":" ++ genVecMessage (size obj) ++ "}"
+    genObjMessage obj = "{\"pos\":" ++ genVecMessage (pos obj) ++ ",\"size\":" ++ genVecMessage (size obj) ++ ",\"dir\":" ++ genVecMessage (dir obj) ++ "}"
     genVecMessage v = "{\"x\":" ++ show (vecX v) ++ ",\"y\":" ++ show (vecY v) ++ ",\"z\":" ++ show (vecZ v) ++ "}"
 
 
@@ -218,14 +218,14 @@ unitVector :: Vector
 unitVector = 1
 
 unitVectors :: [Vector]
-unitVectors = map (($ unitVector) . ($ 1)) [setVecX,setVecY,setVecZ]
+unitVectors =
+  [Vector (1,0,0)
+  ,Vector (0,1,0)
+  ,Vector (0,0,1)
+  ]
 
-extractUnit :: Vector -> Vector -> VectorComp
-extractUnit (Vector (0,0,1)) = vecZ
-extractUnit (Vector (0,1,0)) = vecY
-extractUnit (Vector (1,0,0)) = vecX
--- TODO: Fix this evil af code
-extractUnit _ = const 0
+vecSum :: Vector -> VectorComp
+vecSum (Vector (x,y,z)) = x+y+z
 
 aabbCorners :: AABB -> [Vector]
 aabbCorners (Vector (ax,ay,az), Vector (bx,by,bz)) =
