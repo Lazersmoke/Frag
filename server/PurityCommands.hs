@@ -35,11 +35,24 @@ playerMove v = transformPlayersObject (transformWish v)
 -- transform the object by transforming the wish
 playerLook :: String -> UCAction
 playerLook command = case map maybeRead delta of
-  [Just dx, Just dy] -> transformPlayersObject (\o -> o {dir = Vector (0, ((0.1 * dy) +) $ vecY (dir o),1)})
+  [Just dx, Just dy] -> transformPlayersObject (\o -> o {dir = rotatePitchYaw (sens * dy) (sens * dx) (dir o)})
   -- Const drops the player arg; Invalid delta means no movement for anyone
   _ -> const id
   where
     delta = drop 1 $ words command
+    sens = 0.1
+
+asRadians :: Floating a => a -> a
+asRadians = (* pi) . (/180)
+
+-- Credit to /u/Taylee <3
+rotatePitchYaw :: VectorComp -> VectorComp -> Vector -> Vector
+rotatePitchYaw pitch yaw (Vector (x,y,z)) = 
+  Vector
+  (cos yaw * x + sin yaw * (sin pitch * y + cos pitch * z)
+  ,cos pitch * y - sin pitch * z
+  ,negate (sin yaw * x) + cos yaw * (sin pitch * y + cos pitch * z)
+  )
 
 -- sin( pitch ) = y coord
 getPitch :: Vector -> VectorComp

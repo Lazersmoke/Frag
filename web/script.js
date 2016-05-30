@@ -31,7 +31,10 @@ sock.onmessage = function(e){
   camera.position.y = parsed.players[0].pos.y + 2
   camera.position.z = parsed.players[0].pos.z
 
-  camera.lookAt(new THREE.Vector3(parsed.players[0].dir.x,parsed.players[0].dir.y,parsed.players[0].dir.z))
+  camera.lookAt(new THREE.Vector3(
+        camera.position.x + parsed.players[0].dir.x,
+        camera.position.y + parsed.players[0].dir.y,
+        camera.position.z + parsed.players[0].dir.z))
 
   scene.children = []
   planeList = 
@@ -43,6 +46,10 @@ sock.onmessage = function(e){
   , [new $point(-5,-2,-5)
     ,new $point( 5,-2, 5)
     ,new $point( 5,-2,-5)
+    ]
+  , [new $point(-5,10, 5)
+    ,new $point(-5,-2, 5)
+    ,new $point(-5,-2,-5)
     ]
   ]
   objectList.forEach(function(a){
@@ -104,7 +111,7 @@ function mouseMoveHandler(e){
   delta.x = e.clientX - lastMouse.x
   delta.y = e.clientY - lastMouse.y
   console.log("target = " + "look " + delta.x + " " + delta.y)
-  sock.send("look " + delta.x + " " + delta.y)
+  sock.send("look " + (0-delta.x) + " " + (0-delta.y))
   lastMouse = {x: e.clientX, y: e.clientY}
 }
 

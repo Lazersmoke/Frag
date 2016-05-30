@@ -95,7 +95,7 @@ addConnAsPlayer conn ps = do
         status = ps,
         userCmds = [],
         ready = False,
-        object = emptyObject {size = Vector (0.1,0.1,0.1)}
+        object = emptyObject {dir = Vector (0,0,1), size = Vector (0.1,0.1,0.1)}
         }
     )
     -- If Invalid, ask again
