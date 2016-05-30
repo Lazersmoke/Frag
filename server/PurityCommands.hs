@@ -37,6 +37,8 @@ playerLook cmd = case map maybeRead delta of
   [Just dx, Just dy] -> 
     transformPlayersObject (\o -> 
       o{
+      -- For players, keep dir up to date with yaw and pitch
+      dir = facingDir o,
       -- Add mouse delta to yaw
       yaw = yaw o + sens * dx,
       -- Add mouse delta to pitch
