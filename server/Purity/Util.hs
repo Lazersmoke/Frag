@@ -1,7 +1,7 @@
 {-# LANGUAGE FlexibleContexts #-}
-module PurityUtil where
+module Purity.Util where
 
-import PurityData 
+import Purity.Data 
 
 import qualified Network.WebSockets as WS
 import qualified Data.Text as T
@@ -19,6 +19,7 @@ testServerState = addObject oneCube
       {geometry = 
         [WorldPlane (Vector (-5,-2,-5), Vector (-5,-2,5), Vector (5,-2,5))
         ,WorldPlane (Vector (-5,-2,-5), Vector (5,-2,5), Vector (5,-2,-5))
+        ,WorldPlane (Vector (-5,10, 5), Vector (-5,-2, 5), Vector (-5,-2,-5))
         ]
       ,levelName = "testlevel"
       }
@@ -195,8 +196,6 @@ rotatePitchYaw dPitch dYaw (Vector (x,y,z)) =
   ,cos dPitch * y - sin dPitch * z
   ,- sin dYaw * x + cos dYaw * (sin dPitch * y + cos dPitch * z)
   )
-
-
 
 intersectAABBWP :: AABB -> WorldPlane -> Bool
 intersectAABBWP aabb wp@(WorldPlane (v1,v2,v3)) = 

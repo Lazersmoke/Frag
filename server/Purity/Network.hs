@@ -1,9 +1,9 @@
 {-# LANGUAGE OverloadedStrings #-}
 
-module PurityNetwork where
+module Purity.Network where
 
-import PurityData
-import PurityUtil
+import Purity.Data
+import Purity.Util
 
 import qualified Network.WebSockets as WS
 import Control.Concurrent

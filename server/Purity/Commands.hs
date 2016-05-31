@@ -1,8 +1,8 @@
 {-# LANGUAGE TupleSections #-}
-module PurityCommands where
+module Purity.Commands where
 
-import PurityData
-import PurityUtil
+import Purity.Data
+import Purity.Util
 
 performUC :: Player -> UserCommand -> ServerState -> ServerState
 performUC p uc = ($ p) $ case firstWord $ command uc of
@@ -38,7 +38,7 @@ playerLook cmd = case map maybeRead delta of
     transformPlayersObject (\o -> 
       o{
       -- For players, keep dir up to date with yaw and pitch
-      dir = facingDir o,
+      dir = facingDir o {yaw = yaw o + sens * dx, pitch = pitch o + sens * dy},
       -- Add mouse delta to yaw
       yaw = yaw o + sens * dx,
       -- Add mouse delta to pitch

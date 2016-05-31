@@ -17,7 +17,7 @@ cabal-version:       >=1.10
 
 executable Purity
   main-is:             Main.hs
-  other-modules:       PurityData
+  other-modules:       Purity.Data
   other-extensions:    GeneralizedNewtypeDeriving
   build-depends:       base >=4.8 && <4.9, mtl, transformers, websockets >=0.9 && <0.10, text, time
   hs-source-dirs:      server

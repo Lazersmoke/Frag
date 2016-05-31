@@ -2,9 +2,9 @@
 
 module Main where
 
-import PurityUtil
-import PurityNetwork
-import PurityControl
+import Purity.Util
+import Purity.Network
+import Purity.Control
 
 import Control.Concurrent
 import qualified Network.WebSockets as WS

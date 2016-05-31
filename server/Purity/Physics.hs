@@ -1,6 +1,6 @@
-module PurityPhysics where
-import PurityData
-import PurityUtil
+module Purity.Physics where
+import Purity.Data
+import Purity.Util
 
 doPhysics :: Double -> ServerState -> ServerState
 doPhysics dt ss = transformObjects (doObjectPhysics dt ss) . transformPlayers (doPlayerPhysics dt ss) $ ss 
@@ -29,7 +29,7 @@ tickAcceleration :: Double -> Object -> Object
 tickAcceleration dt obj = obj {vel = scale accelSpeed absWish + vel obj}
   where
     -- wishDir is relative to local coords, so we need to convert to abs coords to move (rotation only)
-    absWish = wish obj
+    absWish = rotatePitchYaw (pitch obj) (yaw obj) (wish obj)
     -- Current speed, as dot product on wishDir
     currSpeed = dotProduct (normalizeVector absWish) (vel obj) 
     -- Max speed that we can add

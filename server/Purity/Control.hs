@@ -1,9 +1,9 @@
-module PurityControl where
+module Purity.Control where
 
-import PurityData
-import PurityPhysics
-import PurityUtil
-import PurityCommands
+import Purity.Data
+import Purity.Physics
+import Purity.Util
+import Purity.Commands
 
 import Control.Monad
 import Control.Concurrent

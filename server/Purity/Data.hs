@@ -1,5 +1,5 @@
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
-module PurityData where
+module Purity.Data where
 
 import qualified Network.WebSockets as WS
 import Data.List
