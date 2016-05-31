@@ -79,7 +79,7 @@ addConnAsPlayer ss conn ps = do
         status = ps,
         userCmds = [],
         ready = False,
-        object = emptyObject {dir = Vector (0,0,1), size = Vector (0.1,0.1,0.1)}
+        object = emptyObject {size = Vector (0.1,0.1,0.1)}
         }
     )
     -- If Invalid, ask again
@@ -179,6 +179,24 @@ asRadians = (* pi) . (/180)
 maybeRead :: Read a => String -> Maybe a
 maybeRead = fmap fst . listToMaybe . reads
 
+-- TODO: add genPlayerMessage to add player info. also update on client to accept new format
+generateMessage :: ServerState -> String
+generateMessage s = 
+  "{\"objects\":" ++ genListMessage genObjMessage (objects s) 
+  ++ ", \"players\": " ++ genListMessage genObjMessage (map object $ players s) 
+  ++ "}"
+  where
+    genListMessage xf xs = "[" ++ (intercalate "," . map xf $ xs) ++ "]"
+    genObjMessage obj = 
+      "{\"pos\":" ++ genVecMessage (pos obj) 
+      ++ ",\"size\":" ++ genVecMessage (size obj) 
+      ++ ",\"dir\":" ++ genVecMessage (facingDir obj) 
+      ++ "}"
+    genVecMessage v = 
+      "{\"x\":" ++ show (vecX v) 
+      ++ ",\"y\":" ++ show (vecY v) 
+      ++ ",\"z\":" ++ show (vecZ v) 
+      ++ "}"
 
 parseVector :: String -> Maybe Vector
 parseVector str =

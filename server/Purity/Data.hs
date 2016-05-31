@@ -63,13 +63,6 @@ transformPlayers f ss = ss {players = map f $ players ss}
 transformObjects :: (Object -> Object) -> ServerState -> ServerState
 transformObjects f ss = ss {objects = map f $ objects ss}
 
-generateMessage :: ServerState -> String
-generateMessage s = "{\"objects\":" ++ genObjListMessage (objects s) ++ ", \"players\": " ++ genObjListMessage (map object $ players s) ++ "}"
-  where
-    genObjListMessage objs = "[" ++ (intercalate "," . map genObjMessage $ objs) ++ "]"
-    genObjMessage obj = "{\"pos\":" ++ genVecMessage (pos obj) ++ ",\"size\":" ++ genVecMessage (size obj) ++ ",\"dir\":" ++ genVecMessage (dir obj) ++ "}"
-    genVecMessage v = "{\"x\":" ++ show (vecX v) ++ ",\"y\":" ++ show (vecY v) ++ ",\"z\":" ++ show (vecZ v) ++ "}"
-
 
 ----------------
 -- # Player # --
@@ -127,23 +120,31 @@ data Object = Object {
   pos :: Position,
   size :: Direction,
   vel :: Velocity,
-  dir :: Direction,
-  pitch :: VectorComp,
   yaw :: VectorComp,
+  pitch :: VectorComp,
+  roll :: VectorComp,
   wish :: Direction
   } deriving Eq
 
 instance Show Object where
-  show obj = "{Pos: " ++ show (pos obj) ++ ", Size: " ++ show (size obj) ++  ", Vel: " ++ show (vel obj) ++ ", Dir: " ++ show (dir obj) ++ ", Wish: " ++ show (wish obj) ++ "}"
+  show obj = 
+    "{Pos: " ++ show (pos obj) 
+    ++ ", Size: " ++ show (size obj) 
+    ++ ", Vel: " ++ show (vel obj) 
+    ++ ", Yaw: " ++ show (yaw obj) 
+    ++ ", Pitch: " ++ show (pitch obj) 
+    ++ ", Roll: " ++ show (roll obj) 
+    ++ ", Wish: " ++ show (wish obj) 
+    ++ "}"
 
 emptyObject :: Object
 emptyObject = Object {
   pos = emptyVector,
   size = emptyVector,
   vel = emptyVector,
-  dir = emptyVector,
-  pitch = 0,
   yaw = 0,
+  pitch = 0,
+  roll = 0,
   wish = emptyVector
   }
 
