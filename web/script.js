@@ -101,7 +101,7 @@ document.getElementById("connect").onclick = function(){
 document.onkeydown = keyDownHandler
 document.onkeyup = keyUpHandler
 
-var keystates = {87: false,65: false, 83: false,68: false}
+var keystates = {87: false,65: false, 83: false,68: false,32: false}
 
 var currentMouse = {x: 0, y: 0}
 ple = document.getElementsByTagName("canvas")[0]
@@ -145,6 +145,9 @@ function keyDownHandler(e){
       case 68:
         sock.send("+right")
         break;
+      case 32:
+        sock.send("+jump")
+        break;
     }
   }
 }
@@ -162,6 +165,9 @@ function keyUpHandler(e){
       break;
     case 68:
       sock.send("-right")
+      break;
+    case 32:
+      sock.send("-jump")
       break;
   }
 }

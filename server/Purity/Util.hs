@@ -13,17 +13,17 @@ testServerState :: ServerState
 testServerState = addObject oneCube 
   {wish = Vector (1,0,0)
   ,vel = Vector (-1,-1,-1)
-  } $ freshServerState 
-    {world = 
-      World
-      {geometry = 
-        [WorldPlane (Vector (-5,-2,-5), Vector (-5,-2,5), Vector (5,-2,5))
-        ,WorldPlane (Vector (-5,-2,-5), Vector (5,-2,5), Vector (5,-2,-5))
-        ,WorldPlane (Vector (-5,10, 5), Vector (-5,-2, 5), Vector (-5,-2,-5))
-        ]
-      ,levelName = "testlevel"
-      }
-  }
+  } 
+  . set world
+    World
+    {geometry = 
+      [WorldPlane (Vector (-5,-2,-5), Vector (-5,-2,5), Vector (5,-2,5))
+      ,WorldPlane (Vector (-5,-2,-5), Vector (5,-2,5), Vector (5,-2,-5))
+      ,WorldPlane (Vector (-5,10, 5), Vector (-5,-2, 5), Vector (-5,-2,-5))
+      ]
+    ,levelName = "testlevel"
+    }
+  $ freshServerState 
 
 -- # Monad Generics # --
 
@@ -55,7 +55,7 @@ sendMessagePlayer pla = sendMessage (connection pla)
 
 -- Parse a String to a UC by stamping it with the tick
 parseUC :: MVar ServerState -> String -> IO UserCommand
-parseUC ss text = readMVar ss >>= \s -> return UserCommand {tick = currentTick s, command = text}
+parseUC ss text = readMVar ss >>= \s -> return UserCommand {tick = currentTick ~>> s, command = text}
 
 -- Receive a message from a player
 receiveMessagePlayer :: Player -> IO String
@@ -86,7 +86,7 @@ addConnAsPlayer ss conn ps = do
     (addConnAsPlayer ss conn ps)
     where
       -- Not in current player list and less than 50 long
-      validatePlayerName chosen = fmap ((&& length chosen < 50) . notElem chosen . map name . players) (readMVar ss)
+      validatePlayerName chosen = fmap ((&& length chosen < 50) . notElem chosen . map name . grab players) (readMVar ss)
 
 -- # ServerState Player Manip # --
 updateReady :: Player -> Player
@@ -99,29 +99,30 @@ updateReady p
 
 -- Add a object to an existing ServerState
 addObject :: Object -> ServerState -> ServerState
-addObject obj ss = ss {objects = obj : objects ss}
+addObject obj = objects >&> (obj:)
 
 -- Drop an object
 dropObject :: Object -> ServerState -> ServerState
-dropObject obj ss = ss {objects = delete obj $ objects ss}
+dropObject obj = objects >&> delete obj
 
 -- # ServerState Other Manip # --
 
 -- Increment the Tick
 incrementTick :: ServerState -> ServerState
-incrementTick ss = ss {currentTick = currentTick ss + 1}
+incrementTick = currentTick >&> (+1)
 
+-- Setup everything to start the game
 startGame :: ServerState -> ServerState
-startGame ss = ss {phase = Playing, players = map (setStatus Respawning) (players ss)}
+startGame = (phase >@> Playing) . changeMap players (setStatus Respawning)
 
 
 -- Tell a connection about the Game Phase
 tellGamePhase :: MVar ServerState -> WS.Connection -> IO ()
-tellGamePhase ss = tellConnection ss $ ("Game Phase is " ++) . show . phase 
+tellGamePhase ss = tellConnection ss $ ("Game Phase is " ++) . show . grab phase 
 
 -- Tell a connection the list of players
 tellPlayerList :: MVar ServerState -> WS.Connection -> IO ()
-tellPlayerList ss = tellConnection ss $ show . map name . players
+tellPlayerList ss = tellConnection ss $ show . map name . grab players
 
 -- Tell a player something about the state
 tellConnection :: MVar ServerState -> (ServerState -> String) -> WS.Connection -> IO ()
@@ -171,7 +172,13 @@ normalWP (WorldPlane (v1,v2,v3)) = normalizeVector v
     v = crossProduct p1 p2 
 
 facingDir :: Object -> Vector
-facingDir o = rotatePitchYaw (pitch o) (yaw o) (Vector (0,0,1))
+facingDir o = rotObj o forwardVector
+
+rotObj :: Object -> Vector -> Vector
+rotObj o = rotatePitchYaw (pitch o) (yaw o)
+
+forwardVector :: Vector
+forwardVector = Vector (0,0,1)
 
 asRadians :: Floating a => a -> a
 asRadians = (* pi) . (/180)
@@ -182,8 +189,8 @@ maybeRead = fmap fst . listToMaybe . reads
 -- TODO: add genPlayerMessage to add player info. also update on client to accept new format
 generateMessage :: ServerState -> String
 generateMessage s = 
-  "{\"objects\":" ++ genListMessage genObjMessage (objects s) 
-  ++ ", \"players\": " ++ genListMessage genObjMessage (map object $ players s) 
+  "{\"objects\":" ++ genListMessage genObjMessage (objects ~>> s) 
+  ++ ", \"players\": " ++ genListMessage genObjMessage (map object $ players ~>> s) 
   ++ "}"
   where
     genListMessage xf xs = "[" ++ (intercalate "," . map xf $ xs) ++ "]"
@@ -214,32 +221,6 @@ rotatePitchYaw dPitch dYaw (Vector (x,y,z)) =
   ,cos dPitch * y - sin dPitch * z
   ,- sin dYaw * x + cos dYaw * (sin dPitch * y + cos dPitch * z)
   )
-
-intersectAABBWP :: AABB -> WorldPlane -> Bool
-intersectAABBWP aabb wp@(WorldPlane (v1,v2,v3)) = 
-  -- If there is no separating axis, then they must intersect
-  not $ foundClearAABBNormal || foundClearWPNormal || foundClearCrossProduct
-  where
-    wpCorners = [v1,v2,v3]
-    wpEdges = [v1-v3,v2-v1,v3-v2]
-    wpNormal = normalWP wp
-
-    -- Unit vectors are the normals to an AABB
-    foundClearAABBNormal = any aabbNormalClear unitVectors
-    -- True if the WP is fully off to one side of the box on the given axis
-    aabbNormalClear axis = areSeparated (projectWP wp axis) (map (vecSum . (* axis)) wpCorners)
-
-    -- True if the box is fully on one side of the WP's infinite plane
-    foundClearWPNormal = areSeparated (projectAABB aabb wpNormal) [wpNormalOffset] 
-    wpNormalOffset = dotProduct wpNormal v1
-
-    -- True if any of the cross products between aabb normals and triangle edges are a separating plane
-    foundClearCrossProduct = or [areSeparated (boxCross t b) (triCross t b) | t <- wpEdges, b <- unitVectors]
-
-    -- Project the AABB onto the cross vector
-    boxCross tri box = projectAABB aabb (tri `crossProduct` box)
-    -- Project the WP onto the cross vector
-    triCross tri box = projectWP wp (tri `crossProduct` box)
 
 project :: [Vector] -> Vector -> [VectorComp]
 project verts vec = map (dotProduct vec) verts

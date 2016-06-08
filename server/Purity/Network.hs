@@ -16,7 +16,7 @@ onConnection ss pending = do
   -- Fork keep alive thread for shitty clients
   WS.forkPingThread conn 30
   -- Fetch the actual server state to check the game phase
-  gameStage <- phase <$> readMVar ss
+  gameStage <- grab phase <$> readMVar ss
   case gameStage of
     Lobby -> do
       -- Tell client that the server is in the lobby
@@ -33,7 +33,7 @@ onConnection ss pending = do
       -- Tell Client we are in game
       tellGamePhase ss conn
       -- Read the rules
-      r <- rules <$> readMVar ss
+      r <- grab gameRules <$> readMVar ss
       -- check if the rules say they can join mid game
       if joinMidGame r
         -- Add them to the game

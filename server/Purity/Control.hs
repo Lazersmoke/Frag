@@ -25,13 +25,13 @@ mainLoop mvss lastTickStart = do
   ss <- readMVar mvss
   tickStartTime <- getPOSIXTime 
   let dt = realToFrac $ tickStartTime - lastTickStart
-  case phase ss of
+  case phase ~>> ss of
     Lobby -> do
       modifyMVar_ mvss $ return . transformPlayers updateReady
       -- Start when everyone (at least one) is ready
-      when (all ready (players ss) && (not . null $ players ss)) 
+      when (all ready (players ~>> ss) && (not . null $ players ~>> ss)) 
         -- Start by setting phase to Playing and setting everyone to respawning
-        (modifyMVar_ mvss $ return . setPhase Playing . transformPlayers (setStatus Respawning))
+        (modifyMVar_ mvss $ return . startGame)
     Loading -> return ()
     Playing -> do
       modifyMVar_ mvss (return
@@ -52,4 +52,4 @@ mainLoop mvss lastTickStart = do
   mainLoop mvss tickStartTime
 
 tellPlayersState :: ServerState -> IO ()
-tellPlayersState ss = forM_ (players ss) $ flip sendMessagePlayer (generateMessage ss)
+tellPlayersState ss = forM_ (players ~>> ss) $ flip sendMessagePlayer (generateMessage ss)

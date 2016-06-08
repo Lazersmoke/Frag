@@ -4,6 +4,39 @@ module Purity.Data where
 import qualified Network.WebSockets as WS
 import Data.List
 
+----------------
+-- # Access # --
+----------------
+
+type Access prop state = (prop -> prop) -> state -> (prop, state)
+
+grabf :: Access prop state -> (prop -> prop) -> state -> prop
+grabf a f m = fst $ a f m 
+
+grab :: Access prop state -> state -> prop
+grab a m = fst $ a id m
+
+change :: Access prop state -> (prop -> prop) -> state -> state
+change a f m = snd $ a f m
+
+changeMap :: Functor a => Access (a prop) state -> (prop -> prop) -> state -> state
+changeMap a f m = snd $ a (fmap f) m
+
+set :: Access prop state -> prop -> state -> state
+set a n m = snd $ a (const n) m
+
+-- players ~>> ss
+(~>>) :: Access p s -> s -> p
+(~>>) = grab
+
+-- (phase >@> phase') ss
+(>@>) :: Access p s -> p -> s -> s
+(>@>) = set
+
+-- (currentTick >&> (+1)) ss
+(>&>) :: Access p s -> (p -> p) -> s -> s
+(>&>) = change
+
 ---------------------
 -- # ServerState # --
 ---------------------
@@ -13,14 +46,7 @@ data ServerPhase = Lobby | Loading | Playing deriving (Show,Eq)
 
 -- A tick is an integer
 type Tick = Integer
-data ServerState = ServerState {
-  world :: World,
-  players :: [Player],
-  objects :: [Object],
-  phase :: ServerPhase,
-  rules :: GameRules,
-  currentTick :: Tick
-  } deriving (Show,Eq)
+data ServerState = ServerState World [Player] [Object] ServerPhase GameRules Tick deriving (Show,Eq)
 
 data GameRules = Rules {
   joinMidGame :: Bool,
@@ -29,40 +55,54 @@ data GameRules = Rules {
 
 -- Default Server State
 freshServerState :: ServerState
-freshServerState = ServerState {
-  world = World {levelName = "", geometry = []},
-  players = [],
-  objects = [],
-  phase = Lobby,
-  rules = Rules {
+freshServerState = ServerState 
+  World {levelName = "", geometry = []}
+  [] -- No Players
+  [] -- No Objects
+  Lobby -- Start in Lobby
+  Rules {
     joinMidGame = False,
     friendlyFire = False
-    },
-  currentTick = 0
-  }
+    }
+  0 -- Tick 0
 
-setPhase :: ServerPhase -> ServerState -> ServerState
-setPhase sp ss = ss {phase = sp}
+world :: Access World ServerState
+world f (ServerState w p o ph r c) = (f w, ServerState (f w) p o ph r c)
+
+players :: Access [Player] ServerState
+players f (ServerState w p o ph r c) = (f p, ServerState w (f p) o ph r c)
+
+objects :: Access [Object] ServerState
+objects f (ServerState w p o ph r c) = (f o, ServerState w p (f o) ph r c)
+
+phase :: Access ServerPhase ServerState
+phase f (ServerState w p o ph r c) = (f ph, ServerState w p o (f ph) r c)
+
+gameRules :: Access GameRules ServerState
+gameRules f (ServerState w p o ph r c) = (f r, ServerState w p o ph (f r) c)
+
+currentTick :: Access Tick ServerState
+currentTick f (ServerState w p o ph r c) = (f c, ServerState w p o ph r (f c))
+
 -- Add a player to an existing ServerState
 addPlayer :: Player -> ServerState -> ServerState
-addPlayer pla ss = ss {players = pla : players ss}
+addPlayer pla = change players (pla :) 
 
 -- Drop a player
 dropPlayer :: Player -> ServerState -> ServerState
-dropPlayer pla ss = ss {players = delete pla $ players ss}
+dropPlayer pla = change players (delete pla)
 
 -- Change the first player to the second one
 modifyPlayer :: Player -> Player -> ServerState -> ServerState
-modifyPlayer old new ss = ss {players = new : delete old (players ss)}
+modifyPlayer old new = change players ((new:) . delete old) 
 
 -- Lifts map over player to work on ServerState's
 transformPlayers :: (Player -> Player) -> ServerState -> ServerState
-transformPlayers f ss = ss {players = map f $ players ss}
+transformPlayers = changeMap players
 
 -- Lifts map over objects to work on ServerState's
 transformObjects :: (Object -> Object) -> ServerState -> ServerState
-transformObjects f ss = ss {objects = map f $ objects ss}
-
+transformObjects = changeMap objects
 
 ----------------
 -- # Player # --
@@ -123,9 +163,11 @@ data Object = Object {
   yaw :: VectorComp,
   pitch :: VectorComp,
   roll :: VectorComp,
-  wish :: Direction
+  wish :: Direction,
+  mode :: PhysicsMode
   } deriving Eq
 
+data PhysicsMode = OnGround | InAir deriving (Show, Eq)-- | OnLadder | InWater
 instance Show Object where
   show obj = 
     "{Pos: " ++ show (pos obj) 
@@ -135,6 +177,7 @@ instance Show Object where
     ++ ", Pitch: " ++ show (pitch obj) 
     ++ ", Roll: " ++ show (roll obj) 
     ++ ", Wish: " ++ show (wish obj) 
+    ++ ", Mode: " ++ show (mode obj) 
     ++ "}"
 
 emptyObject :: Object
@@ -145,7 +188,8 @@ emptyObject = Object {
   yaw = 0,
   pitch = 0,
   roll = 0,
-  wish = emptyVector
+  wish = emptyVector,
+  mode = InAir
   }
 
 oneCube :: Object
@@ -156,6 +200,10 @@ transformWish f obj = obj {wish = f $ wish obj}
 
 objAABB :: Object -> AABB
 objAABB o = (pos o, pos o + size o)
+
+-- Set an object's Physics Mode
+setMode :: PhysicsMode -> Object -> Object
+setMode m obj = obj {mode = m}
 
 ---------------------
 -- # World Plane # --

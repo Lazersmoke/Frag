@@ -18,6 +18,9 @@ performUC p uc = ($ p) $ case firstWord $ command uc of
   "+left" -> playerMove (setVecX (-1))
   "-left" -> playerMove (setVecX 0)
 
+  "+jump" -> playerJump
+  "-jump" -> playerUnJump
+
   -- "look dx dy" 
   "look" -> playerLook (command uc)
   _ -> noAct
@@ -30,6 +33,12 @@ type UCAction = Player -> ServerState -> ServerState
 -- transform the object by transforming the wish
 playerMove :: (Vector -> Vector) -> UCAction
 playerMove v = transformPlayersObject (transformWish v) 
+
+playerJump :: UCAction
+playerJump = transformPlayersObject (setMode InAir . transformWish (setVecY 1))
+
+playerUnJump :: UCAction
+playerUnJump = transformPlayersObject (transformWish (setVecY 0))
 
 playerLook :: String -> UCAction
 playerLook cmd = case map maybeRead delta of
@@ -61,7 +70,7 @@ performUCs p (x:y) = performUCs p y . performUC p x
 
 -- For each player, get and S -> S, then put them all in a list, concat, and apFold
 doUserCmds :: ServerState -> ServerState
-doUserCmds s = emptyCmds . (listApFold . map (\p -> performUCs p (userCmds p)) $ players s) $ s
+doUserCmds s = emptyCmds . (listApFold . map (\p -> performUCs p (userCmds p)) $ players ~>> s) $ s
   where
     emptyCmds = transformPlayers (\p -> p {userCmds = []}) 
 

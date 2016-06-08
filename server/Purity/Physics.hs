@@ -2,14 +2,16 @@ module Purity.Physics where
 import Purity.Data
 import Purity.Util
 
+import Debug.Trace
+
 doPhysics :: Double -> ServerState -> ServerState
 doPhysics dt ss = transformObjects (doObjectPhysics dt ss) . transformPlayers (doPlayerPhysics dt ss) $ ss 
 
 -- Move an object, all said and done
 doObjectPhysics :: Double -> ServerState -> Object -> Object
-doObjectPhysics dt s = tickPosition dt . collideWithWorld . applyGravity dt . tickAcceleration dt
+doObjectPhysics dt s = tickPosition dt . collideWithWorld . applyFriction dt . applyGravity dt . tickAcceleration dt
   where
-    collideWithWorld = listApFold (map (\w x -> if intersectAABBWP (objAABB x) w then repairWPIntersection w x else x) . geometry . world $ s)
+    collideWithWorld = listApFold (map (\w x -> if intersectAABBWP (objAABB x) w then repairWPIntersection w x else setMode InAir x) . geometry . grab world $ s)
 
 -- Do physics on a player; let objectphysics soak extra arguments
 doPlayerPhysics :: Double -> ServerState -> Player -> Player
@@ -24,22 +26,42 @@ tickPosition dt obj = obj {pos = scale dt (vel obj) + pos obj}
 applyGravity :: Double -> Object -> Object
 applyGravity dt obj = obj {vel = vel obj - Vector (0,9 * dt,0)}
 
+--TODO: FACTOR OUT MAGIC NUMBER
+-- Apply friction to velocity
+applyFriction :: Double -> Object -> Object
+applyFriction dt obj = obj {vel = vel obj - scale 0.06 (vel obj)}
+
 -- Apply internal acceleration to velocity
 tickAcceleration :: Double -> Object -> Object
-tickAcceleration dt obj = obj {vel = scale accelSpeed absWish + vel obj}
+tickAcceleration dt obj = accelerate dt obj
   where
-    -- wishDir is relative to local coords, so we need to convert to abs coords to move (rotation only)
-    absWish = rotatePitchYaw (pitch obj) (yaw obj) (wish obj)
+    accelerate = case mode obj of
+      OnGround -> groundAccelerate 
+      InAir -> airAccelerate
+
+airAccelerate :: Double -> Object -> Object
+airAccelerate dt o = (accelerateVector dt . setVecY 0 . scale 5 . rotObj o $ wish o) o
+
+-- Accelerate on a vector
+accelerateVector :: Double -> Vector -> Object -> Object
+accelerateVector dt along obj = obj {vel = scale accelSpeed (normalizeVector along) + vel obj}
+  where
     -- Current speed, as dot product on wishDir
-    currSpeed = dotProduct (normalizeVector absWish) (vel obj) 
+    currSpeed = dotProduct (normalizeVector along) (vel obj) 
     -- Max speed that we can add
-    addSpeed = max (magnitude absWish - currSpeed) 0
+    addSpeed = max (magnitude along - currSpeed) 0
     -- Actual speed to add
     --TODO: FACTOR OUT MAGIC NUMBER
-    accelSpeed = min (12 * dt * magnitude absWish) addSpeed
+    accelSpeed = min (12 * dt * magnitude along) addSpeed
+
+groundAccelerate :: Double -> Object -> Object
+groundAccelerate dt obj = (accelerateVector dt . scale 5 . (* Vector (1,15,1)) . rotatePitchYaw 0 (yaw obj) $ wish obj) obj
 
 repairWPIntersection :: WorldPlane -> Object -> Object
-repairWPIntersection wp obj = obj {vel = newvel}
+repairWPIntersection wp obj = 
+  if intersectAABBWP (objAABB obj) wp
+    then traceShowId $ obj {mode = OnGround, vel = newvel}
+    else obj
   where
     dp = dotProduct (vel obj) nor -- 1 if away, -1 if towards, 0 if _|_ etc
     newvel = if dp > 0
@@ -48,42 +70,28 @@ repairWPIntersection wp obj = obj {vel = newvel}
     nor = normalWP wp
     springCo = 1
 
-{-
- - This code used to deal with Object-Object physics before WPs were a thing. Code is really bad, though
-hasCollision :: Object -> [Object] -> Bool
-hasCollision obj = any (intersection obj) . delete obj 
-
-resolveCollision :: Object -> [Object] -> Object
-resolveCollision obj allObjs = foldl res obj collidedObjs
+intersectAABBWP :: AABB -> WorldPlane -> Bool
+intersectAABBWP aabb wp@(WorldPlane (v1,v2,v3)) = 
+  -- If there is no separating axis, then they must intersect
+  not $ foundClearAABBNormal || foundClearWPNormal || foundClearCrossProduct
   where
-    collidedObjs = filter (intersection obj) allObjs
-    res orig col = 
-      let dp = dotProduct (pos orig - pos col) (vel col - vel orig) in
-      if dp > 0
-        then orig {vel = negate $ vel orig}
-        else orig
+    wpCorners = [v1,v2,v3]
+    wpEdges = [v1-v3,v2-v1,v3-v2]
+    wpNormal = normalWP wp
 
+    -- Unit vectors are the normals to an AABB
+    foundClearAABBNormal = any aabbNormalClear unitVectors
+    -- True if the WP is fully off to one side of the box on the given axis
+    aabbNormalClear axis = areSeparated (projectWP wp axis) (map (vecSum . (* axis)) wpCorners)
 
--- TODO: Actual collision physics
-doCollisionPhysics :: Double -> Object -> Object
-doCollisionPhysics _ obj = obj {vel = emptyVector}
+    -- True if the box is fully on one side of the WP's infinite plane
+    foundClearWPNormal = areSeparated (projectAABB aabb wpNormal) [wpNormalOffset] 
+    wpNormalOffset = dotProduct wpNormal v1
 
-intersection :: Object -> Object -> Bool 
-intersection a b = not $ c vecX || c vecY || c vecZ
-  where
-    -- Actual Wizardry
-    c f = f at < f bo || f bt < f ao
-    ao = pos a
-    bo = pos b
-    at = size a + pos a
-    bt = size b + pos b
--}
-{-
- - Resolve all object collisions
- - Move each object to next position
- -
- - Do all the steps forward
- - for collisions:
- -   set position right up against
- -   set velocity to zero along surface normal
- -}
+    -- True if any of the cross products between aabb normals and triangle edges are a separating plane
+    foundClearCrossProduct = or [areSeparated (boxCross t b) (triCross t b) | t <- wpEdges, b <- unitVectors]
+
+    -- Project the AABB onto the cross vector
+    boxCross tri box = projectAABB aabb (tri `crossProduct` box)
+    -- Project the WP onto the cross vector
+    triCross tri box = projectWP wp (tri `crossProduct` box)
