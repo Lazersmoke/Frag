@@ -9,21 +9,21 @@ import Data.List
 import Data.Maybe
 import Control.Concurrent
 
+testObject :: Object
+testObject = (wish >@> Vector (1,0,0)) . (vel >@> Vector (-1,-1,-1)) $ oneCube
+
+testWorld :: World
+testWorld = World
+  {geometry = 
+    [WorldPlane (Vector (-5,-2,-5), Vector (-5,-2,5), Vector (5,-2,5))
+    ,WorldPlane (Vector (-5,-2,-5), Vector (5,-2,5), Vector (5,-2,-5))
+    ,WorldPlane (Vector (-5,10, 5), Vector (-5,-2, 5), Vector (-5,-2,-5))
+    ]
+  ,levelName = "testlevel"
+  }
+
 testServerState :: ServerState
-testServerState = addObject oneCube 
-  {wish = Vector (1,0,0)
-  ,vel = Vector (-1,-1,-1)
-  } 
-  . set world
-    World
-    {geometry = 
-      [WorldPlane (Vector (-5,-2,-5), Vector (-5,-2,5), Vector (5,-2,5))
-      ,WorldPlane (Vector (-5,-2,-5), Vector (5,-2,5), Vector (5,-2,-5))
-      ,WorldPlane (Vector (-5,10, 5), Vector (-5,-2, 5), Vector (-5,-2,-5))
-      ]
-    ,levelName = "testlevel"
-    }
-  $ freshServerState 
+testServerState = (objects >&> (testObject:)) . (world >@> testWorld) $ freshServerState 
 
 -- # Monad Generics # --
 
@@ -51,15 +51,15 @@ receiveMessage conn = T.unpack <$> WS.receiveData conn
 
 -- Send a message to a player
 sendMessagePlayer :: Player -> String -> IO ()
-sendMessagePlayer pla = sendMessage (connection pla) 
+sendMessagePlayer pla = sendMessage (connection ~>> pla) 
 
 -- Parse a String to a UC by stamping it with the tick
-parseUC :: MVar ServerState -> String -> IO UserCommand
-parseUC ss text = readMVar ss >>= \s -> return UserCommand {tick = currentTick ~>> s, command = text}
+parseUC :: MVar ServerState -> String -> String -> IO UserCommand
+parseUC ss text plaName = readMVar ss >>= \s -> return $ UserCommand (currentTick ~>> s) text plaName
 
 -- Receive a message from a player
 receiveMessagePlayer :: Player -> IO String
-receiveMessagePlayer pla = receiveMessage (connection pla) 
+receiveMessagePlayer pla = receiveMessage (connection ~>> pla) 
 
 addConnAsPlayer :: MVar ServerState -> WS.Connection -> PlayerStatus -> IO Player
 addConnAsPlayer ss conn ps = do
@@ -71,28 +71,27 @@ addConnAsPlayer ss conn ps = do
   validatePlayerName chosenName >>= switch
     -- If valid
     (tee
-      (\p -> modifyMVar_ ss (return . addPlayer p)) -- Add it to the state
-      return -- And return it
-      Player { -- Make a new player
-        name = chosenName, -- With the chosen name
-        connection = conn,
-        status = ps,
-        userCmds = [],
-        ready = False,
-        object = emptyObject {size = Vector (0.1,0.1,0.1)}
-        }
+      (\p -> modifyMVar_ ss (return . change players (p:))) -- Add it to the state
+      return $ -- And return it
+        Player -- Make a new player
+        chosenName -- With the chosen name
+        conn
+        ps
+        (set size (scale 0.1 unitVector) emptyObject)
+        False -- Not Ready
+        [] -- No commands
     )
     -- If Invalid, ask again
     (addConnAsPlayer ss conn ps)
     where
       -- Not in current player list and less than 50 long
-      validatePlayerName chosen = fmap ((&& length chosen < 50) . notElem chosen . map name . grab players) (readMVar ss)
+      validatePlayerName chosen = fmap ((&& length chosen < 50) . notElem chosen . map (grab name) . grab players) (readMVar ss)
 
 -- # ServerState Player Manip # --
-updateReady :: Player -> Player
-updateReady p
-  | "Ready" `elem` map command (userCmds p) = p {ready = True}
-  | "Unready" `elem` map command (userCmds p) = p {ready = False}
+updateReady :: ServerState -> ServerState
+updateReady ss = map (\u -> if command ~>> u == "Ready" then set  -- TODO
+  | "Ready" `elem` map (command ~>>) (userCmds ~>> p) = set ready True p 
+  | "Unready" `elem` map (command ~>>) (userCmds ~>> p) = set ready False p 
   | otherwise = p
 
 -- # ServerState Object Manip
@@ -113,7 +112,7 @@ incrementTick = currentTick >&> (+1)
 
 -- Setup everything to start the game
 startGame :: ServerState -> ServerState
-startGame = (phase >@> Playing) . changeMap players (setStatus Respawning)
+startGame = (phase >@> Playing) . changeMap players (status >@> Respawning)
 
 
 -- Tell a connection about the Game Phase
@@ -122,7 +121,7 @@ tellGamePhase ss = tellConnection ss $ ("Game Phase is " ++) . show . grab phase
 
 -- Tell a connection the list of players
 tellPlayerList :: MVar ServerState -> WS.Connection -> IO ()
-tellPlayerList ss = tellConnection ss $ show . map name . grab players
+tellPlayerList ss = tellConnection ss $ show . map (grab name) . grab players
 
 -- Tell a player something about the state
 tellConnection :: MVar ServerState -> (ServerState -> String) -> WS.Connection -> IO ()
@@ -175,7 +174,7 @@ facingDir :: Object -> Vector
 facingDir o = rotObj o forwardVector
 
 rotObj :: Object -> Vector -> Vector
-rotObj o = rotatePitchYaw (pitch o) (yaw o)
+rotObj o = rotatePitchYaw (pitch ~>> o) (yaw ~>> o)
 
 forwardVector :: Vector
 forwardVector = Vector (0,0,1)
@@ -190,28 +189,20 @@ maybeRead = fmap fst . listToMaybe . reads
 generateMessage :: ServerState -> String
 generateMessage s = 
   "{\"objects\":" ++ genListMessage genObjMessage (objects ~>> s) 
-  ++ ", \"players\": " ++ genListMessage genObjMessage (map object $ players ~>> s) 
+  ++ ", \"players\": " ++ genListMessage genObjMessage (map (object ~>>) $ players ~>> s) 
   ++ "}"
   where
     genListMessage xf xs = "[" ++ (intercalate "," . map xf $ xs) ++ "]"
     genObjMessage obj = 
-      "{\"pos\":" ++ genVecMessage (pos obj) 
-      ++ ",\"size\":" ++ genVecMessage (size obj) 
+      "{\"pos\":" ++ genVecMessage (pos ~>> obj) 
+      ++ ",\"size\":" ++ genVecMessage (size ~>> obj) 
       ++ ",\"dir\":" ++ genVecMessage (facingDir obj) 
       ++ "}"
-    genVecMessage v = 
-      "{\"x\":" ++ show (vecX v) 
-      ++ ",\"y\":" ++ show (vecY v) 
-      ++ ",\"z\":" ++ show (vecZ v) 
+    genVecMessage (Vector (x,y,z)) = 
+      "{\"x\":" ++ show x
+      ++ ",\"y\":" ++ show y
+      ++ ",\"z\":" ++ show z
       ++ "}"
-
-parseVector :: String -> Maybe Vector
-parseVector str =
-    case map maybeRead w of
-      [Just x, Just y, Just z] -> Just $ Vector (x, y, z)
-      _ -> Nothing
-  where
-    w = words str
 
 -- Credit to /u/Taylee <3
 rotatePitchYaw :: VectorComp -> VectorComp -> Vector -> Vector

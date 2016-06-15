@@ -3,6 +3,7 @@
 module Main where
 
 import Purity.Util
+import Purity.Data -- REPL import
 import Purity.Network
 import Purity.Control
 

@@ -2,7 +2,6 @@
 module Purity.Data where
 
 import qualified Network.WebSockets as WS
-import Data.List
 
 ----------------
 -- # Access # --
@@ -10,8 +9,11 @@ import Data.List
 
 type Access prop state = (prop -> prop) -> state -> (prop, state)
 
-grabf :: Access prop state -> (prop -> prop) -> state -> prop
-grabf a f m = fst $ a f m 
+grabf :: Access prop state -> (prop -> result) -> state -> result
+grabf a f m = f (grab a m)
+
+grabShow :: Show prop => Access prop state -> state -> String
+grabShow a m = show (grab a m)
 
 grab :: Access prop state -> state -> prop
 grab a m = fst $ a id m
@@ -26,8 +28,15 @@ set :: Access prop state -> prop -> state -> state
 set a n m = snd $ a (const n) m
 
 -- players ~>> ss
+-- Or
+-- ss <<~ players
 (~>>) :: Access p s -> s -> p
 (~>>) = grab
+infixr 9 ~>>
+
+(<<~) :: s -> Access p s -> p
+(<<~) = flip (~>>)
+infixl 9 <<~ 
 
 -- (phase >@> phase') ss
 (>@>) :: Access p s -> p -> s -> s
@@ -46,7 +55,24 @@ data ServerPhase = Lobby | Loading | Playing deriving (Show,Eq)
 
 -- A tick is an integer
 type Tick = Integer
-data ServerState = ServerState World [Player] [Object] ServerPhase GameRules Tick deriving (Show,Eq)
+data ServerState = ServerState World [Player] [Object] ServerPhase GameRules Tick [UserCommand] deriving (Show,Eq)
+
+data PhysicsDescriptor = PhysicsDescriptor {
+  airAccel :: Double,
+  groundAccel :: Double,
+  gravityConst :: Double,
+  frictionConst :: Double,
+  deltaTime :: Double
+  }
+
+defaultPhysicsDescriptor :: PhysicsDescriptor
+defaultPhysicsDescriptor = PhysicsDescriptor {
+  airAccel = 12,
+  groundAccel = 12,
+  gravityConst = 1,
+  frictionConst = 1,
+  deltaTime = 0
+  }
 
 data GameRules = Rules {
   joinMidGame :: Bool,
@@ -65,44 +91,28 @@ freshServerState = ServerState
     friendlyFire = False
     }
   0 -- Tick 0
+  [] -- No User Commands
 
 world :: Access World ServerState
-world f (ServerState w p o ph r c) = (f w, ServerState (f w) p o ph r c)
+world f (ServerState w p o ph r c u) = (f w, ServerState (f w) p o ph r c u)
 
 players :: Access [Player] ServerState
-players f (ServerState w p o ph r c) = (f p, ServerState w (f p) o ph r c)
+players f (ServerState w p o ph r c u) = (f p, ServerState w (f p) o ph r c u)
 
 objects :: Access [Object] ServerState
-objects f (ServerState w p o ph r c) = (f o, ServerState w p (f o) ph r c)
+objects f (ServerState w p o ph r c u) = (f o, ServerState w p (f o) ph r c u)
 
 phase :: Access ServerPhase ServerState
-phase f (ServerState w p o ph r c) = (f ph, ServerState w p o (f ph) r c)
+phase f (ServerState w p o ph r c u) = (f ph, ServerState w p o (f ph) r c u)
 
 gameRules :: Access GameRules ServerState
-gameRules f (ServerState w p o ph r c) = (f r, ServerState w p o ph (f r) c)
+gameRules f (ServerState w p o ph r c u) = (f r, ServerState w p o ph (f r) c u)
 
 currentTick :: Access Tick ServerState
-currentTick f (ServerState w p o ph r c) = (f c, ServerState w p o ph r (f c))
+currentTick f (ServerState w p o ph r c u) = (f c, ServerState w p o ph r (f c) u)
 
--- Add a player to an existing ServerState
-addPlayer :: Player -> ServerState -> ServerState
-addPlayer pla = change players (pla :) 
-
--- Drop a player
-dropPlayer :: Player -> ServerState -> ServerState
-dropPlayer pla = change players (delete pla)
-
--- Change the first player to the second one
-modifyPlayer :: Player -> Player -> ServerState -> ServerState
-modifyPlayer old new = change players ((new:) . delete old) 
-
--- Lifts map over player to work on ServerState's
-transformPlayers :: (Player -> Player) -> ServerState -> ServerState
-transformPlayers = changeMap players
-
--- Lifts map over objects to work on ServerState's
-transformObjects :: (Object -> Object) -> ServerState -> ServerState
-transformObjects = changeMap objects
+userCmds :: Access [UserCommand] ServerState
+userCmds f (ServerState w p o ph r c u) = (f u, ServerState w p o ph r c (f u))
 
 ----------------
 -- # Player # --
@@ -112,98 +122,111 @@ type ReadyStatus = Bool
 -- What is the player's status
 data PlayerStatus = InGame | Respawning | InLobby | Lost deriving (Show,Eq)
 
-data Player = Player {
-  name :: String, -- Player's Name
-  connection :: WS.Connection, -- Player's Connection
-  status :: PlayerStatus, -- Players current state
-  object :: Object,
-  ready :: ReadyStatus,
-  userCmds :: [UserCommand] -- UCs associated with this player
-  }
+data Player = Player String WS.Connection PlayerStatus Object ReadyStatus [UserCommand] 
+
+name :: Access String Player
+name f (Player n c s o r u) = (f n, Player (f n) c s o r u)
+
+connection :: Access WS.Connection Player
+connection f (Player n c s o r u) = (f c, Player n (f c) s o r u)
+
+status :: Access PlayerStatus Player
+status f (Player n c s o r u) = (f s, Player n c (f s) o r u)
+
+object :: Access Object Player
+object f (Player n c s o r u) = (f o, Player n c s (f o) r u)
+
+ready :: Access ReadyStatus Player
+ready f (Player n c s o r u) = (f r, Player n c s o (f r) u)
 
 instance Show Player where
-  show p = name p ++ "/" ++ (show . status) p ++ "<|" ++ show (object p) ++ "|>"
+  show p = name ~>> p ++ "/" ++ grabShow status p ++ "<|" ++ grabShow object p ++ "|>"
 
 instance Eq Player where
-  (==) a b = name a == name b
+  (==) a b = name ~>> a == name ~>> b
 
-data UserCommand = UserCommand {
-  tick :: Tick, -- Tick Number
-  command :: String -- Keys pressed
-  }
+data UserCommand = UserCommand
+  Tick -- Tick Number
+  String -- The Command
+  String -- The Name of the source player
+  deriving (Eq,Show)
 
--- Set a player's status
-setStatus :: PlayerStatus -> Player -> Player
-setStatus ps pla = pla {status = ps}
+tick :: Access Tick UserCommand
+tick f (UserCommand t c p) = (f t,UserCommand (f t) c p)
 
--- Set a player's readiness
-setReady :: ReadyStatus -> Player -> Player
-setReady rs pla = pla {ready = rs}
+command :: Access String UserCommand
+command f (UserCommand t c p) = (f c,UserCommand t (f c) p)
 
--- Set a player's object
-setObject :: Object -> Player -> Player
-setObject obj pla = pla {object = obj}
-
--- Transform a player's object
-transformObject :: (Object -> Object) -> Player -> Player
-transformObject f pla = setObject (f . object $ pla) pla
-
--- Add a UC to a player
-addUC :: UserCommand -> Player -> Player
-addUC uc pla = pla {userCmds = uc : userCmds pla}
+sourcePlayerName :: Access String UserCommand
+sourcePlayerName f (UserCommand t c p) = (f p,UserCommand t c (f p))
 
 ------------------------------
 -- # Object (for physics) # --
 ------------------------------
 
-data Object = Object {
-  pos :: Position,
-  size :: Direction,
-  vel :: Velocity,
-  yaw :: VectorComp,
-  pitch :: VectorComp,
-  roll :: VectorComp,
-  wish :: Direction,
-  mode :: PhysicsMode
-  } deriving Eq
+data Object = Object 
+  Position -- Position
+  Direction -- Size
+  Velocity -- Velocity
+  Vector -- Angles (YPR
+  Direction -- Wish
+  PhysicsMode -- Mode
+  deriving Eq
+
+pos :: Access Vector Object
+pos     f (Object p s v a w m) = (f p, Object (f p) s v a w m)
+
+size :: Access Vector Object
+size    f (Object p s v a w m) = (f s, Object p (f s) v a w m)
+
+vel :: Access Vector Object
+vel     f (Object p s v a w m) = (f v, Object p s (f v) a w m)
+
+angles :: Access Vector Object
+angles  f (Object p s v a w m) = (f a, Object p s v (f a) w m)
+
+yaw :: Access VectorComp Object
+yaw     f (Object p s v a w m) = (grabf vecX f a, Object p s v ((vecX >&> f) a) w m)
+
+pitch :: Access VectorComp Object
+pitch   f (Object p s v a w m) = (grabf vecY f a, Object p s v ((vecY >&> f) a) w m)
+
+roll :: Access VectorComp Object
+roll    f (Object p s v a w m) = (grabf vecZ f a, Object p s v ((vecZ >&> f) a) w m)
+
+wish :: Access Vector Object
+wish    f (Object p s v a w m) = (f w, Object p s v a (f w) m)
+
+mode :: Access PhysicsMode Object
+mode    f (Object p s v a w m) = (f m, Object p s v a w (f m))
 
 data PhysicsMode = OnGround | InAir deriving (Show, Eq)-- | OnLadder | InWater
 instance Show Object where
   show obj = 
-    "{Pos: " ++ show (pos obj) 
-    ++ ", Size: " ++ show (size obj) 
-    ++ ", Vel: " ++ show (vel obj) 
-    ++ ", Yaw: " ++ show (yaw obj) 
-    ++ ", Pitch: " ++ show (pitch obj) 
-    ++ ", Roll: " ++ show (roll obj) 
-    ++ ", Wish: " ++ show (wish obj) 
-    ++ ", Mode: " ++ show (mode obj) 
+    "{Pos: " ++ grabShow pos obj 
+    ++ ", Size: " ++ grabShow size obj 
+    ++ ", Vel: " ++ grabShow vel obj 
+    ++ ", Yaw: " ++ grabShow yaw obj 
+    ++ ", Pitch: " ++ grabShow pitch obj 
+    ++ ", Roll: " ++ grabShow roll obj
+    ++ ", Wish: " ++ grabShow wish obj 
+    ++ ", Mode: " ++ grabShow mode obj 
     ++ "}"
 
 emptyObject :: Object
-emptyObject = Object {
-  pos = emptyVector,
-  size = emptyVector,
-  vel = emptyVector,
-  yaw = 0,
-  pitch = 0,
-  roll = 0,
-  wish = emptyVector,
-  mode = InAir
-  }
+emptyObject = Object 
+  emptyVector
+  emptyVector
+  emptyVector
+  emptyVector
+  emptyVector
+  InAir
 
 oneCube :: Object
-oneCube = emptyObject {size = 1}
-
-transformWish :: (Direction -> Direction) -> Object -> Object
-transformWish f obj = obj {wish = f $ wish obj}
+oneCube = (size >@> 1) emptyObject
 
 objAABB :: Object -> AABB
-objAABB o = (pos o, pos o + size o)
-
--- Set an object's Physics Mode
-setMode :: PhysicsMode -> Object -> Object
-setMode m obj = obj {mode = m}
+objAABB o = (pos ~>> o, pos ~>> o + size ~>> o)
 
 ---------------------
 -- # World Plane # --
@@ -268,21 +291,12 @@ aabbCorners (Vector (ax,ay,az), Vector (bx,by,bz)) =
   ,Vector (bx,by,bz)
   ]
 
--- Get components
-vecX :: Vector -> VectorComp
-vecX (Vector (a,_,_)) = a
+-- Vector Accessors
+vecX :: Access VectorComp Vector 
+vecX f (Vector (x,y,z)) = (f x,Vector (f x,y,z))
 
-setVecX :: VectorComp -> Vector -> Vector
-setVecX a (Vector (_,b,c)) = Vector (a,b,c)
+vecY :: Access VectorComp Vector 
+vecY f (Vector (x,y,z)) = (f y,Vector (x,f y,z))
 
-vecY :: Vector -> VectorComp
-vecY (Vector (_,a,_)) = a
-
-setVecY :: VectorComp -> Vector -> Vector
-setVecY b (Vector (a,_,c)) = Vector (a,b,c)
-
-vecZ :: Vector -> VectorComp
-vecZ (Vector (_,_,a)) = a
-
-setVecZ :: VectorComp -> Vector -> Vector
-setVecZ c (Vector (a,b,_)) = Vector (a,b,c)
+vecZ :: Access VectorComp Vector 
+vecZ f (Vector (x,y,z)) = (f z,Vector (x,y,f z))

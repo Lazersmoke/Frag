@@ -26,7 +26,7 @@ onConnection ss pending = do
       -- Give the player the list of other players, fresh from the gamestate
       tellPlayerList ss conn
       -- Wait for more messages
-      waitForMessages ss (name newPlayer) (connection newPlayer)
+      waitForMessages ss (name ~>> newPlayer) (connection ~>> newPlayer)
     -- Tell them we are loading and thats it
     Loading -> tellGamePhase ss conn
     Playing -> do
@@ -37,7 +37,7 @@ onConnection ss pending = do
       -- check if the rules say they can join mid game
       if joinMidGame r
         -- Add them to the game
-        then addConnAsPlayer ss conn Respawning >>= \p -> waitForMessages ss (name p) (connection p)
+        then addConnAsPlayer ss conn Respawning >>= \p -> waitForMessages ss (name ~>> p) (connection ~>> p)
         -- Give the user an error message
         else sendMessage conn "Server owner disabled joining mid game"
 
@@ -45,8 +45,8 @@ waitForMessages :: MVar ServerState -> String -> WS.Connection -> IO ()
 waitForMessages ss plaName conn = do
   message <- receiveMessage conn
   -- parse the UC
-  usercmd <- parseUC ss message
+  usercmd <- parseUC ss message plaName
   -- Add it to the player
-  modifyMVar_ ss $ return . transformPlayers (\x -> if name x == plaName then addUC usercmd x else x)
+  modifyMVar_ ss $ return . (userCmds >&> (:usercmd))
   -- Recurse
   waitForMessages ss plaName conn

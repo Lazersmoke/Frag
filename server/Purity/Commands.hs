@@ -5,24 +5,24 @@ import Purity.Data
 import Purity.Util
 
 performUC :: Player -> UserCommand -> ServerState -> ServerState
-performUC p uc = ($ p) $ case firstWord $ command uc of
-  "+forward" -> playerMove (setVecZ 1)
-  "-forward" -> playerMove (setVecZ 0)
+performUC p uc = ($ p) $ case firstWord $ command ~>> uc of
+  "+forward" -> playerMove (vecZ >@> 1)
+  "-forward" -> playerMove (vecZ >@> 0)
 
-  "+back" -> playerMove (setVecZ (-1))
-  "-back" -> playerMove (setVecZ 0)
+  "+back" -> playerMove (vecZ >@> (-1))
+  "-back" -> playerMove (vecZ >@> 0)
 
-  "+right" -> playerMove (setVecX 1)
-  "-right" -> playerMove (setVecX 0)
+  "+right" -> playerMove (vecX >@> 1)
+  "-right" -> playerMove (vecX >@> 0)
 
-  "+left" -> playerMove (setVecX (-1))
-  "-left" -> playerMove (setVecX 0)
+  "+left" -> playerMove (vecX >@> (-1))
+  "-left" -> playerMove (vecX >@> 0)
 
   "+jump" -> playerJump
   "-jump" -> playerUnJump
 
   -- "look dx dy" 
-  "look" -> playerLook (command uc)
+  "look" -> playerLook (command ~>> uc)
   _ -> noAct
 
 firstWord :: String -> String
@@ -32,25 +32,21 @@ firstWord str = head . words $ str
 type UCAction = Player -> ServerState -> ServerState
 -- transform the object by transforming the wish
 playerMove :: (Vector -> Vector) -> UCAction
-playerMove v = transformPlayersObject (transformWish v) 
+playerMove v = transformPlayersObject (wish >&> v) 
 
 playerJump :: UCAction
-playerJump = transformPlayersObject (setMode InAir . transformWish (setVecY 1))
+playerJump = transformPlayersObject (set mode InAir . change wish (vecY >@> 1))
 
 playerUnJump :: UCAction
-playerUnJump = transformPlayersObject (transformWish (setVecY 0))
+playerUnJump = transformPlayersObject (wish >&> (vecY >@> 0))
 
 playerLook :: String -> UCAction
 playerLook cmd = case map maybeRead delta of
   -- If the deltas were read ok, then transform the object
   [Just dx, Just dy] -> 
-    transformPlayersObject (\o -> 
-      o{
-      -- Add mouse delta to yaw
-      yaw = yaw o + sens * dx,
-      -- Add mouse delta to pitch
-      pitch = pitch o + sens * dy
-      }
+    transformPlayersObject (
+      (yaw >&> (+ sens * dx))-- Add mouse delta to yaw
+      . (pitch >&> (+ sens * dy)) -- Add mouse delta to pitch
     )
   -- If the deltas are invalid then don't do anything
   _ -> noAct
@@ -59,7 +55,7 @@ playerLook cmd = case map maybeRead delta of
     sens = 0.01
 
 transformPlayersObject :: (Object -> Object) -> UCAction
-transformPlayersObject f p = transformPlayers (\x -> if x == p then transformObject f x else x)
+transformPlayersObject f p = changeMap players (\x -> if x == p then (object >&> f) x else x)
 
 noAct :: UCAction
 noAct = const id
@@ -70,9 +66,9 @@ performUCs p (x:y) = performUCs p y . performUC p x
 
 -- For each player, get and S -> S, then put them all in a list, concat, and apFold
 doUserCmds :: ServerState -> ServerState
-doUserCmds s = emptyCmds . (listApFold . map (\p -> performUCs p (userCmds p)) $ players ~>> s) $ s
+doUserCmds s = emptyCmds . (listApFold . map (\p -> performUCs p (userCmds ~>> p)) $ players ~>> s) $ s
   where
-    emptyCmds = transformPlayers (\p -> p {userCmds = []}) 
+    emptyCmds = changeMap players (set userCmds []) 
 
 -- +forward command
 -- Set the player's wish to 0 0 1

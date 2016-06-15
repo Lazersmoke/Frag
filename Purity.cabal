@@ -19,6 +19,6 @@ executable Purity
   main-is:             Main.hs
   other-modules:       Purity.Data
   other-extensions:    GeneralizedNewtypeDeriving
-  build-depends:       base >=4.8 && <4.9, mtl, transformers, websockets >=0.9 && <0.10, text, time
+  build-depends:       base >=4.8 && <4.9, mtl, transformers, websockets >=0.9 && <0.10, text, time, split
   hs-source-dirs:      server
   default-language:    Haskell2010

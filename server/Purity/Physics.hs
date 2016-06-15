@@ -4,69 +4,75 @@ import Purity.Util
 
 import Debug.Trace
 
-doPhysics :: Double -> ServerState -> ServerState
-doPhysics dt ss = transformObjects (doObjectPhysics dt ss) . transformPlayers (doPlayerPhysics dt ss) $ ss 
+doPhysics :: PhysicsDescriptor -> ServerState -> ServerState
+doPhysics pd ss = changeMap objects (doObjectPhysics pd ss) . changeMap players (doPlayerPhysics pd ss) $ ss 
 
 -- Move an object, all said and done
-doObjectPhysics :: Double -> ServerState -> Object -> Object
-doObjectPhysics dt s = tickPosition dt . collideWithWorld . applyFriction dt . applyGravity dt . tickAcceleration dt
+doObjectPhysics :: PhysicsDescriptor -> ServerState -> Object -> Object
+doObjectPhysics pd s = 
+  tickPosition dt 
+  . collideWithWorld 
+  . applyFriction dt (frictionConst pd) 
+  . applyGravity dt (gravityConst pd) 
+  . tickAcceleration dt
   where
-    collideWithWorld = listApFold (map (\w x -> if intersectAABBWP (objAABB x) w then repairWPIntersection w x else setMode InAir x) . geometry . grab world $ s)
+    dt = deltaTime pd
+    collideWithWorld = listApFold (map (\w x -> if intersectAABBWP (objAABB x) w then repairWPIntersection w x else set mode InAir x) . geometry . grab world $ s)
 
 -- Do physics on a player; let objectphysics soak extra arguments
-doPlayerPhysics :: Double -> ServerState -> Player -> Player
-doPlayerPhysics = (transformObject .) . doObjectPhysics 
+doPlayerPhysics :: PhysicsDescriptor -> ServerState -> Player -> Player
+doPlayerPhysics = (change object .) . doObjectPhysics 
 
 -- Move by velocity
 tickPosition :: Double -> Object -> Object
-tickPosition dt obj = obj {pos = scale dt (vel obj) + pos obj}
+tickPosition dt obj = pos >&> (+ scale dt (vel ~>> obj)) $ obj
 
---TODO: FACTOR OUT MAGIC NUMBER
 -- Apply gravity to velocity
-applyGravity :: Double -> Object -> Object
-applyGravity dt obj = obj {vel = vel obj - Vector (0,9 * dt,0)}
+applyGravity :: Double -> Double -> Object -> Object
+applyGravity dt grav = vel >&> subtract (Vector (0,grav * dt,0)) 
 
---TODO: FACTOR OUT MAGIC NUMBER
 -- Apply friction to velocity
-applyFriction :: Double -> Object -> Object
-applyFriction dt obj = obj {vel = vel obj - scale 0.06 (vel obj)}
+applyFriction :: Double -> Double -> Object -> Object
+applyFriction dt fric obj = vel >&> subtract (scale (dt * fric) (vel ~>> obj)) $ obj
 
+-- TODO: Rework groundedness
 -- Apply internal acceleration to velocity
 tickAcceleration :: Double -> Object -> Object
 tickAcceleration dt obj = accelerate dt obj
   where
-    accelerate = case mode obj of
+    accelerate = case mode ~>> obj of
       OnGround -> groundAccelerate 
       InAir -> airAccelerate
 
 airAccelerate :: Double -> Object -> Object
-airAccelerate dt o = (accelerateVector dt . setVecY 0 . scale 5 . rotObj o $ wish o) o
+airAccelerate dt o = (accelerateVector dt . set vecY 0 . scale 5 . rotObj o $ wish ~>> o) o
 
 -- Accelerate on a vector
 accelerateVector :: Double -> Vector -> Object -> Object
-accelerateVector dt along obj = obj {vel = scale accelSpeed (normalizeVector along) + vel obj}
+accelerateVector dt along obj = vel >&> (+ finalChange) $ obj
   where
     -- Current speed, as dot product on wishDir
-    currSpeed = dotProduct (normalizeVector along) (vel obj) 
+    currSpeed = dotProduct (normalizeVector along) (vel ~>> obj) 
     -- Max speed that we can add
     addSpeed = max (magnitude along - currSpeed) 0
     -- Actual speed to add
     --TODO: FACTOR OUT MAGIC NUMBER
     accelSpeed = min (12 * dt * magnitude along) addSpeed
+    finalChange = scale accelSpeed (normalizeVector along)
 
 groundAccelerate :: Double -> Object -> Object
-groundAccelerate dt obj = (accelerateVector dt . scale 5 . (* Vector (1,15,1)) . rotatePitchYaw 0 (yaw obj) $ wish obj) obj
+groundAccelerate dt obj = accelerateVector dt (scale 5 . (* Vector (1,15,1)) . rotatePitchYaw 0 (yaw ~>> obj) $ wish ~>> obj) obj
 
 repairWPIntersection :: WorldPlane -> Object -> Object
 repairWPIntersection wp obj = 
   if intersectAABBWP (objAABB obj) wp
-    then traceShowId $ obj {mode = OnGround, vel = newvel}
+    then traceShowId . set mode OnGround . set vel newvel $ obj
     else obj
   where
-    dp = dotProduct (vel obj) nor -- 1 if away, -1 if towards, 0 if _|_ etc
+    dp = dotProduct (vel ~>> obj) nor -- 1 if away, -1 if towards, 0 if _|_ etc
     newvel = if dp > 0
-      then vel obj
-      else vel obj - scale (springCo * dp) nor -- questionable method
+      then vel ~>> obj
+      else vel ~>> obj - scale (springCo * dp) nor -- questionable method
     nor = normalWP wp
     springCo = 1
 

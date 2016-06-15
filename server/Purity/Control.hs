@@ -27,9 +27,9 @@ mainLoop mvss lastTickStart = do
   let dt = realToFrac $ tickStartTime - lastTickStart
   case phase ~>> ss of
     Lobby -> do
-      modifyMVar_ mvss $ return . transformPlayers updateReady
+      modifyMVar_ mvss $ return . updateReady
       -- Start when everyone (at least one) is ready
-      when (all ready (players ~>> ss) && (not . null $ players ~>> ss)) 
+      when (all (grab ready) (players ~>> ss) && (not . null $ players ~>> ss)) 
         -- Start by setting phase to Playing and setting everyone to respawning
         (modifyMVar_ mvss $ return . startGame)
     Loading -> return ()
@@ -38,7 +38,7 @@ mainLoop mvss lastTickStart = do
         -- Increment the tick counter
         . incrementTick 
         -- Do the physics
-        . doPhysics dt
+        . doPhysics defaultPhysicsDescriptor {deltaTime = dt}
         -- Do all the user actions
         . doUserCmds
         )
