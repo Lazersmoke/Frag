@@ -5,6 +5,8 @@ import Purity.Physics
 import Purity.Util
 import Purity.Commands
 
+import Data.Access
+
 import Control.Monad
 import Control.Concurrent
 import Data.Time.Clock.POSIX
@@ -15,41 +17,47 @@ import Data.Time.Clock.POSIX
  -}
 
 -- Wraps up main loop to a nice IO ()
-startMainLoop :: MVar ServerState -> IO ()
+startMainLoop :: ServerState -> IO ()
 startMainLoop ss = getPOSIXTime >>= mainLoop ss
 
+-- TODO: Split into lobby tick, loading tick, playing tick functions
 -- Loop that contains all game logic
-mainLoop :: MVar ServerState -> POSIXTime -> IO ()
-mainLoop mvss lastTickStart = do
+mainLoop :: ServerState -> POSIXTime -> IO ()
+mainLoop ss lastTickStart = do
   -- Switch on game phase
-  ss <- readMVar mvss
   tickStartTime <- getPOSIXTime 
   let dt = realToFrac $ tickStartTime - lastTickStart
   case phase ~>> ss of
     Lobby -> do
-      modifyMVar_ mvss $ return . updateReady
+      let ss' = updateReady ss
       -- Start when everyone (at least one) is ready
-      when (all (grab ready) (players ~>> ss) && (not . null $ players ~>> ss)) 
+      if all (ready ~>>) (players ~>> ss') && (not . null $ players ~>> ss')
         -- Start by setting phase to Playing and setting everyone to respawning
-        (modifyMVar_ mvss $ return . startGame)
-    Loading -> return ()
+        then mainLoop (startGame ss') tickStartTime
+        else threadDelay 10000 >> mainLoop ss' tickStartTime
+    Loading -> do 
+      threadDelay 10000
+      mainLoop ss tickStartTime
     Playing -> do
-      modifyMVar_ mvss (return
-        -- Increment the tick counter
-        . incrementTick 
-        -- Do the physics
-        . doPhysics defaultPhysicsDescriptor {deltaTime = dt}
-        -- Do all the user actions
-        . doUserCmds
-        )
-      -- Grab the new state
-      readMVar mvss >>= tee
+      -- Actually tick the game
+      let 
+        ticked = 
+          incrementTick -- Increment the tick counter
+          . doPhysics defaultPhysicsDescriptor {deltaTime = dt} -- Do the physics
+          . doUserCmds -- Do all the user actions
+          $ ss -- Apply to ServerState
+      -- Split to the players and console
+      tee
         -- Send it to each player
         tellPlayersState
         -- Debug it to console
         (\_ -> return ()) -- (io . print . map command . concatMap userCmds . players)
-  threadDelay 10000
-  mainLoop mvss tickStartTime
+        -- Split the ticked version
+        ticked
+      -- Wait a tick
+      threadDelay 10000
+      -- Recurse
+      mainLoop ticked tickStartTime
 
 tellPlayersState :: ServerState -> IO ()
 tellPlayersState ss = forM_ (players ~>> ss) $ flip sendMessagePlayer (generateMessage ss)

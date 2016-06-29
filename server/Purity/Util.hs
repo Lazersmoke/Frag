@@ -5,9 +5,12 @@ import Purity.Data
 
 import qualified Network.WebSockets as WS
 import qualified Data.Text as T
+
+import Control.Concurrent
+
+import Data.Access
 import Data.List
 import Data.Maybe
-import Control.Concurrent
 
 testObject :: Object
 testObject = (wish >@> Vector (1,0,0)) . (vel >@> Vector (-1,-1,-1)) $ oneCube
@@ -31,6 +34,9 @@ testServerState = (objects >&> (testObject:)) . (world >@> testWorld) $ freshSer
 tee :: Monad m => (a -> m c) -> (a -> m b) -> a -> m b
 tee first second arg = first arg >> second arg
 
+teep :: (b -> c -> d) -> (a -> b) -> (a -> c) -> a -> d
+teep combine f g = combine <$> f <*> g
+
 -- Switch on a bool, less pointful
 switch :: a -> a -> Bool -> a
 switch yay nay sw = if sw then yay else nay
@@ -51,48 +57,22 @@ receiveMessage conn = T.unpack <$> WS.receiveData conn
 
 -- Send a message to a player
 sendMessagePlayer :: Player -> String -> IO ()
-sendMessagePlayer pla = sendMessage (connection ~>> pla) 
+sendMessagePlayer pla = undefined -- sendMessage (connection ~>> pla) 
 
 -- Parse a String to a UC by stamping it with the tick
-parseUC :: MVar ServerState -> String -> String -> IO UserCommand
-parseUC ss text plaName = readMVar ss >>= \s -> return $ UserCommand (currentTick ~>> s) text plaName
+parseUC :: Identifier -> String -> UserCommand
+parseUC pIdent text = mkUserCommand text pIdent
 
 -- Receive a message from a player
 receiveMessagePlayer :: Player -> IO String
-receiveMessagePlayer pla = receiveMessage (connection ~>> pla) 
-
-addConnAsPlayer :: MVar ServerState -> WS.Connection -> PlayerStatus -> IO Player
-addConnAsPlayer ss conn ps = do
-  -- Ask client for their name
-  sendMessage conn "What is your name?"
-  -- Wait for client to give their name
-  chosenName <- receiveMessage conn
-  -- Validate the chosen name and switch over it
-  validatePlayerName chosenName >>= switch
-    -- If valid
-    (tee
-      (\p -> modifyMVar_ ss (return . change players (p:))) -- Add it to the state
-      return $ -- And return it
-        Player -- Make a new player
-        chosenName -- With the chosen name
-        conn
-        ps
-        (set size (scale 0.1 unitVector) emptyObject)
-        False -- Not Ready
-        [] -- No commands
-    )
-    -- If Invalid, ask again
-    (addConnAsPlayer ss conn ps)
-    where
-      -- Not in current player list and less than 50 long
-      validatePlayerName chosen = fmap ((&& length chosen < 50) . notElem chosen . map (grab name) . grab players) (readMVar ss)
+receiveMessagePlayer pla = undefined -- receiveMessage (connection ~>> pla) 
 
 -- # ServerState Player Manip # --
 updateReady :: ServerState -> ServerState
-updateReady ss = map (\u -> if command ~>> u == "Ready" then set  -- TODO
-  | "Ready" `elem` map (command ~>>) (userCmds ~>> p) = set ready True p 
-  | "Unready" `elem` map (command ~>>) (userCmds ~>> p) = set ready False p 
-  | otherwise = p
+updateReady ss = foldl (flip id) ss . map (\u -> (\x -> (specificPlayer (playerIdentity ~>> u)) >&> x) $ case command ~>> u of
+  "Ready" -> ready >@> True 
+  "Unready" -> ready >@> False 
+  _ -> id) $ (userCmds ~>> ss)
 
 -- # ServerState Object Manip
 
@@ -104,6 +84,7 @@ addObject obj = objects >&> (obj:)
 dropObject :: Object -> ServerState -> ServerState
 dropObject obj = objects >&> delete obj
 
+
 -- # ServerState Other Manip # --
 
 -- Increment the Tick
@@ -112,7 +93,7 @@ incrementTick = currentTick >&> (+1)
 
 -- Setup everything to start the game
 startGame :: ServerState -> ServerState
-startGame = (phase >@> Playing) . changeMap players (status >@> Respawning)
+startGame = (phase >@> Playing) . liftMap players (status >@> Respawning)
 
 
 -- Tell a connection about the Game Phase

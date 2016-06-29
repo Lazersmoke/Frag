@@ -8,45 +8,28 @@ import Purity.Util
 import qualified Network.WebSockets as WS
 import Control.Concurrent
 
-onConnection :: MVar ServerState -> WS.PendingConnection -> IO ()
-onConnection ss pending = do
+onConnection :: MVar [UserCommand] -> WS.PendingConnection -> IO ()
+onConnection ucs pending = do
   -- Accept every connection
   -- TODO: Make conn a monad stacked thing
   conn <- WS.acceptRequest pending
   -- Fork keep alive thread for shitty clients
   WS.forkPingThread conn 30
-  -- Fetch the actual server state to check the game phase
-  gameStage <- grab phase <$> readMVar ss
-  case gameStage of
-    Lobby -> do
-      -- Tell client that the server is in the lobby
-      tellGamePhase ss conn
-      -- Add that player to the game
-      newPlayer <- addConnAsPlayer ss conn InLobby
-      -- Give the player the list of other players, fresh from the gamestate
-      tellPlayerList ss conn
-      -- Wait for more messages
-      waitForMessages ss (name ~>> newPlayer) (connection ~>> newPlayer)
-    -- Tell them we are loading and thats it
-    Loading -> tellGamePhase ss conn
-    Playing -> do
-      -- Tell Client we are in game
-      tellGamePhase ss conn
-      -- Read the rules
-      r <- grab gameRules <$> readMVar ss
-      -- check if the rules say they can join mid game
-      if joinMidGame r
-        -- Add them to the game
-        then addConnAsPlayer ss conn Respawning >>= \p -> waitForMessages ss (name ~>> p) (connection ~>> p)
-        -- Give the user an error message
-        else sendMessage conn "Server owner disabled joining mid game"
+  -- Ask client for their name
+  sendMessage conn "What is your name?"
+  -- Wait for client to give their name
+  chosenName <- receiveMessage conn
+  -- Add the join command to the user commands
+  addUC ucs (mkUserCommand "join" chosenName)
+  -- Wait for additional commands TODO: change chosenName to an actual, stateful identifier
+  waitForMessages ucs chosenName conn
 
-waitForMessages :: MVar ServerState -> String -> WS.Connection -> IO ()
-waitForMessages ss plaName conn = do
-  message <- receiveMessage conn
-  -- parse the UC
-  usercmd <- parseUC ss message plaName
-  -- Add it to the player
-  modifyMVar_ ss $ return . (userCmds >&> (:usercmd))
+addUC :: MVar [UserCommand] -> UserCommand -> IO ()
+addUC ucs uc = modifyMVar_ ucs $ return . (uc:)
+
+waitForMessages :: MVar [UserCommand] -> Identifier -> WS.Connection -> IO ()
+waitForMessages ucs pIdent conn = do
+  -- recieve a message, wrap it in a UC, and add it to the list
+  addUC ucs . (flip mkUserCommand) pIdent =<< receiveMessage conn 
   -- Recurse
-  waitForMessages ss plaName conn
+  waitForMessages ucs pIdent conn

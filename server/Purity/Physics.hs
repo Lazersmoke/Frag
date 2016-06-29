@@ -1,11 +1,12 @@
 module Purity.Physics where
+
 import Purity.Data
 import Purity.Util
 
-import Debug.Trace
+import Data.Access
 
 doPhysics :: PhysicsDescriptor -> ServerState -> ServerState
-doPhysics pd ss = changeMap objects (doObjectPhysics pd ss) . changeMap players (doPlayerPhysics pd ss) $ ss 
+doPhysics pd ss = liftMap objects (doObjectPhysics pd ss) . liftMap players (doPlayerPhysics pd ss) $ ss 
 
 -- Move an object, all said and done
 doObjectPhysics :: PhysicsDescriptor -> ServerState -> Object -> Object
@@ -21,7 +22,7 @@ doObjectPhysics pd s =
 
 -- Do physics on a player; let objectphysics soak extra arguments
 doPlayerPhysics :: PhysicsDescriptor -> ServerState -> Player -> Player
-doPlayerPhysics = (change object .) . doObjectPhysics 
+doPlayerPhysics = (lift object .) . doObjectPhysics 
 
 -- Move by velocity
 tickPosition :: Double -> Object -> Object
@@ -66,7 +67,7 @@ groundAccelerate dt obj = accelerateVector dt (scale 5 . (* Vector (1,15,1)) . r
 repairWPIntersection :: WorldPlane -> Object -> Object
 repairWPIntersection wp obj = 
   if intersectAABBWP (objAABB obj) wp
-    then traceShowId . set mode OnGround . set vel newvel $ obj
+    then (mode >@> OnGround) . (vel >@> newvel) $ obj
     else obj
   where
     dp = dotProduct (vel ~>> obj) nor -- 1 if away, -1 if towards, 0 if _|_ etc

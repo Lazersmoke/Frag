@@ -4,71 +4,78 @@ module Purity.Commands where
 import Purity.Data
 import Purity.Util
 
-performUC :: Player -> UserCommand -> ServerState -> ServerState
-performUC p uc = ($ p) $ case firstWord $ command ~>> uc of
-  "+forward" -> playerMove (vecZ >@> 1)
-  "-forward" -> playerMove (vecZ >@> 0)
+import Data.Access
 
-  "+back" -> playerMove (vecZ >@> (-1))
-  "-back" -> playerMove (vecZ >@> 0)
+performUC :: UserCommand -> ServerState -> ServerState
+performUC uc = case firstWord $ command ~>> uc of
+  "+forward" -> ucObject uc >&> wish >&> vecZ >@> 1
+  "-forward" -> ucObject uc >&> wish >&> vecZ >@> 0
 
-  "+right" -> playerMove (vecX >@> 1)
-  "-right" -> playerMove (vecX >@> 0)
+  "+back" -> ucObject uc >&> wish >&> vecZ >@> (-1)
+  "-back" -> ucObject uc >&> wish >&> vecZ >@> 0
 
-  "+left" -> playerMove (vecX >@> (-1))
-  "-left" -> playerMove (vecX >@> 0)
+  "+right" -> ucObject uc >&> wish >&> vecX >@> 1
+  "-right" -> ucObject uc >&> wish >&> vecX >@> 0
 
-  "+jump" -> playerJump
-  "-jump" -> playerUnJump
+  "+left" -> ucObject uc >&> wish >&> vecX >@> (-1)
+  "-left" -> ucObject uc >&> wish >&> vecX >@> 0
+
+  "+jump" -> ucObject uc >&> ((mode >@> InAir) . (wish >&> vecY >@> 1))
+  "-jump" -> ucObject uc >&> wish >&> vecY >@> 0
 
   -- "look dx dy" 
-  "look" -> playerLook (command ~>> uc)
-  _ -> noAct
+  "look" -> playerLook uc
+  _ -> id
 
 firstWord :: String -> String
 firstWord [] = []
 firstWord str = head . words $ str
 
-type UCAction = Player -> ServerState -> ServerState
--- transform the object by transforming the wish
-playerMove :: (Vector -> Vector) -> UCAction
-playerMove v = transformPlayersObject (wish >&> v) 
+type UCAction = ServerState -> ServerState
 
-playerJump :: UCAction
-playerJump = transformPlayersObject (set mode InAir . change wish (vecY >@> 1))
-
-playerUnJump :: UCAction
-playerUnJump = transformPlayersObject (wish >&> (vecY >@> 0))
-
-playerLook :: String -> UCAction
-playerLook cmd = case map maybeRead delta of
+playerLook :: UserCommand -> UCAction
+playerLook uc = case map maybeRead delta of
   -- If the deltas were read ok, then transform the object
   [Just dx, Just dy] -> 
-    transformPlayersObject (
-      (yaw >&> (+ sens * dx))-- Add mouse delta to yaw
-      . (pitch >&> (+ sens * dy)) -- Add mouse delta to pitch
-    )
+    ucObject uc >&> ((yaw >&> (+ sens * dx)) . (pitch >&> (+ sens * dy))) -- Add mouse delta to pitch
   -- If the deltas are invalid then don't do anything
-  _ -> noAct
+  _ -> id 
   where
-    delta = drop 1 $ words cmd
+    delta = drop 1 $ words (command ~>> uc)
     sens = 0.01
 
-transformPlayersObject :: (Object -> Object) -> UCAction
-transformPlayersObject f p = changeMap players (\x -> if x == p then (object >&> f) x else x)
+--TODO Make this run at loop time, in Commands.hs, it needs access to the serverstate to make unique ID's for players
+addPlayer :: UserCommand -> ServerState -> ServerState 
+addPlayer uc ss = 
+  -- Validate the chosen name and switch over it
+  ($ss) $ switch
+    -- If valid
+    (players >&> (newPlayer:)) -- Add it to the state
+    -- If Invalid, return unmodified ss
+    id
+    -- Is it valid? (switch on this)
+    nameValid
+    where
+      -- Not in current player list and less than 50 long
+      nameValid = length chosenName < 50 && (notElem chosenName . map (name ~>>) $ players ~>> ss)
+      chosenName = playerIdentity ~>> uc
+      newPlayer = Player -- Make a new player
+        chosenName -- With the chosen name (as ident)
+        chosenName -- With the chosen name
+        Lost
+        (set size (scale 0.1 unitVector) emptyObject)
+        False -- Not Ready
 
-noAct :: UCAction
+noAct :: Player -> UCAction
 noAct = const id
 
-performUCs :: Player -> [UserCommand] -> ServerState -> ServerState
-performUCs _ [] = id 
-performUCs p (x:y) = performUCs p y . performUC p x
+performUCs :: [UserCommand] -> ServerState -> ServerState
+performUCs [] = id 
+performUCs (x:y) = performUCs y . performUC x
 
 -- For each player, get and S -> S, then put them all in a list, concat, and apFold
 doUserCmds :: ServerState -> ServerState
-doUserCmds s = emptyCmds . (listApFold . map (\p -> performUCs p (userCmds ~>> p)) $ players ~>> s) $ s
-  where
-    emptyCmds = changeMap players (set userCmds []) 
+doUserCmds s = (userCmds >@> []) . performUCs (userCmds ~>> s) $ s
 
 -- +forward command
 -- Set the player's wish to 0 0 1
