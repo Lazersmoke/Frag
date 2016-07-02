@@ -20,7 +20,7 @@ onConnection ucs pending = do
   -- Wait for client to give their name
   chosenName <- receiveMessage conn
   -- Add the join command to the user commands
-  addUC ucs (mkUserCommand "join" chosenName)
+  addUC ucs (mkUserCommand ("join " ++ chosenName) chosenName)
   -- Wait for additional commands TODO: change chosenName to an actual, stateful identifier
   waitForMessages ucs chosenName conn
 
@@ -30,6 +30,6 @@ addUC ucs uc = modifyMVar_ ucs $ return . (uc:)
 waitForMessages :: MVar [UserCommand] -> Identifier -> WS.Connection -> IO ()
 waitForMessages ucs pIdent conn = do
   -- recieve a message, wrap it in a UC, and add it to the list
-  addUC ucs . (flip mkUserCommand) pIdent =<< receiveMessage conn 
+  addUC ucs . flip mkUserCommand pIdent =<< receiveMessage conn 
   -- Recurse
   waitForMessages ucs pIdent conn

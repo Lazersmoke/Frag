@@ -69,7 +69,7 @@ receiveMessagePlayer pla = undefined -- receiveMessage (connection ~>> pla)
 
 -- # ServerState Player Manip # --
 updateReady :: ServerState -> ServerState
-updateReady ss = foldl (flip id) ss . map (\u -> (\x -> (specificPlayer (playerIdentity ~>> u)) >&> x) $ case command ~>> u of
+updateReady ss = foldl (flip id) ss . map (\u -> (\x -> specificPlayer (playerIdentity ~>> u) >&> x) $ case command ~>> u of
   "Ready" -> ready >@> True 
   "Unready" -> ready >@> False 
   _ -> id) $ (userCmds ~>> ss)

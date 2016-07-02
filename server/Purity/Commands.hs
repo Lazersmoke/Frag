@@ -44,26 +44,23 @@ playerLook uc = case map maybeRead delta of
     delta = drop 1 $ words (command ~>> uc)
     sens = 0.01
 
---TODO Make this run at loop time, in Commands.hs, it needs access to the serverstate to make unique ID's for players
 addPlayer :: UserCommand -> ServerState -> ServerState 
 addPlayer uc ss = 
   -- Validate the chosen name and switch over it
-  ($ss) $ switch
-    -- If valid
-    (players >&> (newPlayer:)) -- Add it to the state
+  switch
+    -- If valid, add it to the state
+    (players >&> (newPlayer:) $ ss) 
     -- If Invalid, return unmodified ss
-    id
-    -- Is it valid? (switch on this)
-    nameValid
+    ss
+    -- Is it valid? (length < 50 and not already chosen) (switch on this)
+    (length chosenName < 50 && (notElem chosenName . map (name ~>>) $ players ~>> ss))
     where
-      -- Not in current player list and less than 50 long
-      nameValid = length chosenName < 50 && (notElem chosenName . map (name ~>>) $ players ~>> ss)
       chosenName = playerIdentity ~>> uc
       newPlayer = Player -- Make a new player
         chosenName -- With the chosen name (as ident)
         chosenName -- With the chosen name
         Lost
-        (set size (scale 0.1 unitVector) emptyObject)
+        (size >@> scale 0.1 unitVector $ emptyObject)
         False -- Not Ready
 
 noAct :: Player -> UCAction
