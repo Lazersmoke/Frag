@@ -1,6 +1,7 @@
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE NoImplicitPrelude #-}
+--{-# LANGUAGE PhantomTypes #-}
 module Purity.Data where
 
 import Prelude hiding ((.),id)
@@ -22,9 +23,14 @@ data ServerState = ServerState {
   _objects :: [Object],
   _phase :: ServerPhase,
   _gameRules :: GameRules,
-  _currentTick :: Tick,
-  _userCmds :: [UserCommand]
-  }deriving (Show,Eq)
+  _currentTick :: Tick
+  }deriving (Eq)
+
+instance Show ServerState where
+  show s = 
+    "{ServerState " ++ show (phase ~>> s) ++ 
+    " on tick " ++ show (currentTick ~>> s) ++
+    " with players " ++ show (players ~>> s) ++ "}"
 
 data PhysicsDescriptor = PhysicsDescriptor {
   airAccel :: Double,
@@ -60,7 +66,6 @@ freshServerState = ServerState
     friendlyFire = False
     }
   0 -- Tick 0
-  [] -- No User Commands
 
 world :: ServerState ~> World 
 world = Access _world (\f s -> s {_world = f $ _world s})
@@ -80,9 +85,6 @@ gameRules = Access _gameRules (\f s -> s {_gameRules = f $ _gameRules s})
 currentTick :: ServerState ~> Tick
 currentTick = Access _currentTick (\f s -> s {_currentTick = f $ _currentTick s})
 
-userCmds :: ServerState ~> [UserCommand] 
-userCmds = Access _userCmds (\f s -> s {_userCmds = f $ _userCmds s})
-
 -- Additional accessor for a specific player (by id) on a serverstate
 specificPlayer :: Identifier -> ServerState ~> Player
 specificPlayer pIdent = playerListToPlayer . players
@@ -90,8 +92,8 @@ specificPlayer pIdent = playerListToPlayer . players
     getThePlayer = head . filter ((==pIdent) . grab ident)
     playerListToPlayer = Access getThePlayer (\f p -> (f (getThePlayer p):) . filter (/= getThePlayer p) $ p)
 
-ucObject :: UserCommand -> ServerState ~> Object
-ucObject uc = object . specificPlayer (playerIdentity ~>> uc) 
+cmdObject :: Command -> ServerState ~> Object
+cmdObject uc = object . specificPlayer (cmdId ~>> uc) 
 
 ----------------
 -- # Player # --
@@ -126,21 +128,34 @@ ready :: Player ~> ReadyStatus
 ready = Access _ready (\f p -> p {_ready = f $ _ready p})
 
 instance Show Player where
-  show p = name ~>> p ++ "/" ++ show (status ~>> p) ++ "<|" ++ show (object ~>> p) ++ "|>"
+  show p = "{Player " ++ show (name ~>> p) ++ "/" ++ show (status ~>> p) ++ "/" ++ show (ready ~>> p) ++ "}" -- Object: "<|" ++ show (object ~>> p) ++ "|>"
 
-data UserCommand = UserCommand {
+-------------------
+-- # Threading # --
+-------------------
+
+data NetworkSide = Server | Client deriving (Eq,Show)
+
+data Command = Command {
   _command :: String, -- The Command
-  _playerIdentity :: Identifier -- The Identifier of the source player
+  _cmdId :: Identifier, -- The Identifier of the source player
+  _source :: NetworkSide
   } deriving (Eq,Show)
 
-mkUserCommand :: String -> Identifier -> UserCommand
-mkUserCommand = UserCommand
+mkCommand :: String -> Identifier -> NetworkSide -> Command
+mkCommand = Command 
 
-command :: UserCommand ~> String 
+emptyCommand :: NetworkSide -> Command 
+emptyCommand = mkCommand "" "" 
+
+command :: Command ~> String 
 command = Access _command (\f u -> u {_command = f $ _command u})
 
-playerIdentity :: UserCommand ~> Identifier 
-playerIdentity = Access _playerIdentity (\f u -> u {_playerIdentity = f $ _playerIdentity u})
+cmdId :: Command ~> Identifier 
+cmdId = Access _cmdId (\f u -> u {_cmdId = f $ _cmdId u})
+
+source :: Command ~> NetworkSide
+source = Access _source (\f u -> u {_source = f $ _source u})
 
 ------------------------------
 -- # Object (for physics) # --

@@ -17,7 +17,7 @@ var render = function () {
 
 render();
 
-sock = new WebSocket("ws://potatobox.no-ip.info:9160")
+sock = new WebSocket("ws://localhost:9160")
 sock.onopen = function(e){
   console.log("Socket Opened")
   document.getElementById("connect").disabled = ''
@@ -25,6 +25,7 @@ sock.onopen = function(e){
 }
 sock.onclose = function(e){}
 sock.onmessage = function(e){
+  console.log(e.data)
   parsed = JSON.parse(e.data)
   objectList = parsed.players.concat(parsed.objects)
 
@@ -123,7 +124,7 @@ delta = {}
 function mouseMoveHandler(e){
   delta.x = e.movementX || e.mozMovementX || 0
   delta.y = e.movementY || e.mozMovementY || 0
-  console.log(delta.x)
+  //console.log(delta.x)
   if(sock.readyState == sock.OPEN && document.pointerLockElement === ple || document.mozPointerLockElement === ple){
     sock.send("look " + (0-delta.x) + " " + (0-delta.y))
   }

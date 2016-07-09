@@ -37,6 +37,13 @@ tee first second arg = first arg >> second arg
 teep :: (b -> c -> d) -> (a -> b) -> (a -> c) -> a -> d
 teep combine f g = combine <$> f <*> g
 
+pModifyMVar_ :: MVar a -> (a -> a) -> IO ()
+pModifyMVar_ m f = modifyMVar_ m $ return . f
+
+-- Access predication combinator
+--pred :: Access w p -> (p -> Bool) -> w -> Bool
+--pred a pred w = p $ a ~>> w
+
 -- Switch on a bool, less pointful
 switch :: a -> a -> Bool -> a
 switch yay nay sw = if sw then yay else nay
@@ -55,25 +62,15 @@ sendMessage conn = WS.sendTextData conn . T.pack
 receiveMessage :: WS.Connection -> IO String
 receiveMessage conn = T.unpack <$> WS.receiveData conn
 
--- Send a message to a player
-sendMessagePlayer :: Player -> String -> IO ()
-sendMessagePlayer pla = undefined -- sendMessage (connection ~>> pla) 
-
--- Parse a String to a UC by stamping it with the tick
-parseUC :: Identifier -> String -> UserCommand
-parseUC pIdent text = mkUserCommand text pIdent
-
--- Receive a message from a player
-receiveMessagePlayer :: Player -> IO String
-receiveMessagePlayer pla = undefined -- receiveMessage (connection ~>> pla) 
-
 -- # ServerState Player Manip # --
+-- Here be dragons
+{- This is done in Commands.hs now, kept in case of revert
 updateReady :: ServerState -> ServerState
-updateReady ss = foldl (flip id) ss . map (\u -> (\x -> specificPlayer (playerIdentity ~>> u) >&> x) $ case command ~>> u of
+updateReady ss = foldl (flip id) ss . map (\u -> (\x -> specificPlayer (cmdId ~>> u) >&> x) $ case command ~>> u of
   "Ready" -> ready >@> True 
   "Unready" -> ready >@> False 
   _ -> id) $ (userCmds ~>> ss)
-
+-}
 -- # ServerState Object Manip
 
 -- Add a object to an existing ServerState

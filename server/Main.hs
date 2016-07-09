@@ -12,9 +12,8 @@ import qualified Network.WebSockets as WS
 
 main :: IO ()
 main = do
-  -- Generate fresh ServerState to store in the MVar
-  userCommandBuffer <- newMVar []
-  serverCommandBuffer <- newMVar []
+  -- Generate fresh command buffer to store in the MVar
+  commandBuffer <- newMVar []
   -- Start the server, feeding each connection handler the server state's MVar. Also throw away thread ID
-  _ <- forkIO $ WS.runServer "0.0.0.0" 9160 $ onConnection userCommandBuffer serverCommandBuffer
-  startMainLoop testServerState
+  _ <- forkIO $ WS.runServer "0.0.0.0" 9160 $ onConnection commandBuffer
+  startMainLoop commandBuffer testServerState
