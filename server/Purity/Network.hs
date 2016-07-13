@@ -9,8 +9,6 @@ import Data.Access
 import qualified Network.WebSockets as WS
 import Control.Concurrent
 
-import Debug.Trace
-
 onConnection :: MVar [Command] -> WS.PendingConnection -> IO ()
 onConnection cmds pending = do
   -- Accept every connection
@@ -38,7 +36,7 @@ sendMessages cmds pIdent conn = do
   mapM_ (sendMessage conn) =<< map (grab command) . filter matches <$> readMVar cmds
   -- Clear out the messages we sent
   pModifyMVar_ cmds $ filter (not . matches)
-  threadDelay 1000000
+  threadDelay 1000
   sendMessages cmds pIdent conn
   where
     matches c = (Server == source ~>> c) && (pIdent == cmdId ~>> c)

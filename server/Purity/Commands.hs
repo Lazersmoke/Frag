@@ -6,8 +6,6 @@ import Purity.Util
 
 import Data.Access
 
-import Debug.Trace
-
 performCommand :: Command -> Homomorphism ServerState
 performCommand cmd = case firstWord $ command ~>> cmd of
   -- cmdObject :: Command -> ServerState ~> Object

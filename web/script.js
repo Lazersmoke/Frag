@@ -25,7 +25,7 @@ sock.onopen = function(e){
 }
 sock.onclose = function(e){}
 sock.onmessage = function(e){
-  console.log(e.data)
+  //console.log(e.data)
   parsed = JSON.parse(e.data)
   objectList = parsed.players.concat(parsed.objects)
 
@@ -125,7 +125,9 @@ function mouseMoveHandler(e){
   delta.x = e.movementX || e.mozMovementX || 0
   delta.y = e.movementY || e.mozMovementY || 0
   //console.log(delta.x)
+  console.log(e)
   if(sock.readyState == sock.OPEN && document.pointerLockElement === ple || document.mozPointerLockElement === ple){
+    console.log("look " + (0-delta.x) + " " + (0-delta.y))
     sock.send("look " + (0-delta.x) + " " + (0-delta.y))
   }
 }

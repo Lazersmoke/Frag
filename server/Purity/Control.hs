@@ -52,7 +52,6 @@ mainLoop commands ss lastTickStart = do
           . doPhysics defaultPhysicsDescriptor {deltaTime = dt} -- Do the physics
           . performCommands latestIncomingCommands -- Do all the user actions
           $ ss -- Apply to ServerState
-      print (length latestIncomingCommands)
       -- Split to the players and console
       tee
         -- Send it to each player
