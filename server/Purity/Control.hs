@@ -28,15 +28,15 @@ mainLoop commands ss lastTickStart = do
   -- Calculate dt from tick timings
   let dt = realToFrac $ tickStartTime - lastTickStart
   -- Grab the latest messages
-  latestIncomingCommands <- filter ((==Client) . grab source) <$> readMVar commands
+  latestIncomingCommands <- filter ((==Client) . grab SourceSide) <$> readMVar commands
   -- Delete them from the MVar
-  pModifyMVar_ commands $ filter ((/=Client) . grab source)
-  case phase ~>> ss of
+  pModifyMVar_ commands $ filter ((/=Client) . grab SourceSide)
+  case Status ~>> ss of
     Lobby -> do
       -- Perform only join/ready/unready commands when in lobby (else is discarded)
       let ss' = performLobbyCommands latestIncomingCommands ss
       -- Start when everyone (at least one) is ready
-      if all (ready ~>>) (players ~>> ss') && (not . null $ players ~>> ss')
+      if all (Ready ~>>) (Players ~>> ss') && (not . null $ Players ~>> ss')
         -- Start by setting phase to Playing and setting everyone to respawning
         then mainLoop commands (startGame ss') tickStartTime
         -- Otherwise wait a bit and loop
@@ -57,8 +57,8 @@ mainLoop commands ss lastTickStart = do
         -- Send it to each player
         (tellPlayersState commands)
         -- Debug it to console
-        (\_ -> return ()) 
-        -- (io . print . map command . concatMap userCmds . players)
+        (print . map (grab Angles . grab ObjectA) . grab Players)
+        -- (print . map command . concatMap userCmds . players)
         -- Split the ticked version
         ticked
       -- Wait a tick
@@ -67,5 +67,7 @@ mainLoop commands ss lastTickStart = do
       mainLoop commands ticked tickStartTime
 
 tellPlayersState :: MVar [Command] -> ServerState -> IO ()
-tellPlayersState commands ss = pModifyMVar_ commands (++ map mkMessage (players ~>> ss))
-  where mkMessage p = mkCommand (generateMessage ss) (ident ~>> p) Server
+tellPlayersState commands ss = pModifyMVar_ commands (++ map mkMessage (Players ~>> ss))
+  where 
+    mkMessage :: Player -> Command
+    mkMessage p = mkCommand (generateMessage ss) (Identity ~>> p) Server

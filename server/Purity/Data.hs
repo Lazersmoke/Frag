@@ -1,12 +1,15 @@
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE TypeOperators #-}
-{-# LANGUAGE NoImplicitPrelude #-}
+{-# LANGUAGE MultiParamTypeClasses #-}
+{-# LANGUAGE TypeSynonymInstances #-}
+{-# LANGUAGE FlexibleInstances #-}
 --{-# LANGUAGE PhantomTypes #-}
 module Purity.Data where
 
-import Prelude hiding ((.),id)
-import Control.Category
 import Data.Access
+
+(~>) :: b -> a -> Compose a b
+(~>) = flip Compose 
 
 ---------------------
 -- # ServerState # --
@@ -28,9 +31,9 @@ data ServerState = ServerState {
 
 instance Show ServerState where
   show s = 
-    "{ServerState " ++ show (phase ~>> s) ++ 
-    " on tick " ++ show (currentTick ~>> s) ++
-    " with players " ++ show (players ~>> s) ++ "}"
+    "{ServerState " ++ show (Status ~>> s) ++ 
+    " on tick " ++ show (CurrentTick ~>> s) ++
+    " with players " ++ show (Players ~>> s) ++ "}"
 
 data PhysicsDescriptor = PhysicsDescriptor {
   airAccel :: Double,
@@ -49,7 +52,7 @@ defaultPhysicsDescriptor = PhysicsDescriptor {
   deltaTime = 0
   }
 
-data GameRules = Rules {
+data GameRules = GameRules {
   joinMidGame :: Bool,
   friendlyFire :: Bool
   } deriving (Show,Eq)
@@ -61,39 +64,53 @@ freshServerState = ServerState
   [] -- No Players
   [] -- No Objects
   Lobby -- Start in Lobby
-  Rules {
+  GameRules {
     joinMidGame = False,
     friendlyFire = False
     }
   0 -- Tick 0
 
-world :: ServerState ~> World 
-world = Access _world (\f s -> s {_world = f $ _world s})
+data AccessWorld = AccessWorld
+instance Access ServerState World AccessWorld where
+  grab _ = _world
+  lift _ f s = s {_world = f $ _world s}
 
-players :: ServerState ~> [Player]
-players = Access _players (\f s -> s {_players = f $ _players s})
+data Players = Players
+instance Access ServerState [Player] Players where
+  grab _ = _players
+  lift _ f s = s {_players = f $ _players s}
 
-objects :: ServerState ~> [Object] 
-objects = Access _objects (\f s -> s {_objects = f $ _objects s})
+instance Access ServerState [Object] ObjectA where
+  grab _ = _objects
+  lift _ f s = s {_objects = f $ _objects s}
 
-phase :: ServerState ~> ServerPhase 
-phase = Access _phase (\f s -> s {_phase = f $ _phase s})
+instance Access ServerState ServerPhase Status where
+  grab _ = _phase
+  lift _ f s = s {_phase = f $ _phase s}
 
-gameRules :: ServerState ~> GameRules 
-gameRules = Access _gameRules (\f s -> s {_gameRules = f $ _gameRules s})
+data Rules = Rules
+instance Access ServerState GameRules Rules where
+  grab _ = _gameRules
+  lift _ f s = s {_gameRules = f $ _gameRules s}
 
-currentTick :: ServerState ~> Tick
-currentTick = Access _currentTick (\f s -> s {_currentTick = f $ _currentTick s})
+data CurrentTick = CurrentTick
+instance Access ServerState Tick CurrentTick where
+  grab _ = _currentTick
+  lift _ f s = s {_currentTick = f $ _currentTick s}
 
 -- Additional accessor for a specific player (by id) on a serverstate
-specificPlayer :: Identifier -> ServerState ~> Player
-specificPlayer pIdent = playerListToPlayer . players
-  where
-    getThePlayer = head . filter ((==pIdent) . grab ident)
-    playerListToPlayer = Access getThePlayer (\f p -> (f (getThePlayer p):) . filter (/= getThePlayer p) $ p)
+data SpecificPlayer = Specific Identifier
+instance Access ServerState Player SpecificPlayer where
+  grab (Specific ident) = getPlayerByIdentity ident . grab Players
+  lift (Specific ident) f = Players >&> \p -> ((f (getPlayerByIdentity ident p):) . filter (/= getPlayerByIdentity ident p)) p
 
-cmdObject :: Command -> ServerState ~> Object
-cmdObject uc = object . specificPlayer (cmdId ~>> uc) 
+getPlayerByIdentity :: Identifier -> [Player] -> Player
+getPlayerByIdentity i = head . filter ((==i) . grab Identity)
+
+data CmdObject = CmdObject Command
+instance Access ServerState Object CmdObject where
+  grab (CmdObject uc) = grab ObjectA . grab (Specific (Identity ~>> uc))
+  lift (CmdObject uc) f = Specific (Identity ~>> uc) >&> ObjectA >&> f
 
 ----------------
 -- # Player # --
@@ -112,23 +129,33 @@ data Player = Player {
   _ready :: ReadyStatus
   } deriving Eq
   -- Note: Eq is derived, so players with different positions and same ident are different
-ident :: Player ~> Identifier 
-ident = Access _ident (\f p -> p {_ident = f $ _ident p})
+data Identity = Identity
+instance Access Player Identifier Identity where
+  grab _ = _ident
+  lift _ f p = p {_ident = f $ _ident p}
 
-name :: Player ~> String 
-name = Access _name (\f p -> p {_name = f $ _name p})
+data Name = Name
+instance Access Player String Name where
+  grab _ = _name
+  lift _ f p = p {_name = f $ _name p}
 
-status :: Player ~> PlayerStatus 
-status = Access _status (\f p -> p {_status = f $ _status p})
+data Status = Status
+instance Access Player PlayerStatus Status where
+  grab _ = _status
+  lift _ f p = p {_status = f $ _status p}
 
-object :: Player ~> Object 
-object = Access _object (\f p -> p {_object = f $ _object p})
+data ObjectA = ObjectA
+instance Access Player Object ObjectA where
+  grab _ = _object
+  lift _ f p = p {_object = f $ _object p}
 
-ready :: Player ~> ReadyStatus 
-ready = Access _ready (\f p -> p {_ready = f $ _ready p})
+data Ready = Ready
+instance Access Player ReadyStatus Ready where
+  grab _ = _ready
+  lift _ f p = p {_ready = f $ _ready p}
 
 instance Show Player where
-  show p = "{Player " ++ show (name ~>> p) ++ "/" ++ show (status ~>> p) ++ "/" ++ show (ready ~>> p) ++ "}" -- Object: "<|" ++ show (object ~>> p) ++ "|>"
+  show p = "{Player " ++ show (Name ~>> p) ++ "/" ++ show (Status ~>> p) ++ "/" ++ show (Ready ~>> p) ++ "}" -- Object: "<|" ++ show (object ~>> p) ++ "|>"
 
 -------------------
 -- # Threading # --
@@ -148,66 +175,70 @@ mkCommand = Command
 emptyCommand :: NetworkSide -> Command 
 emptyCommand = mkCommand "" "" 
 
-command :: Command ~> String 
-command = Access _command (\f u -> u {_command = f $ _command u})
+data CommandText = CommandText
+instance Access Command String CommandText where
+  grab _ = _command
+  lift _ f u = u {_command = f $ _command u}
 
-cmdId :: Command ~> Identifier 
-cmdId = Access _cmdId (\f u -> u {_cmdId = f $ _cmdId u})
+instance Access Command Identifier Identity where
+  grab _ = _cmdId
+  lift _ f u = u {_cmdId = f $ _cmdId u}
 
-source :: Command ~> NetworkSide
-source = Access _source (\f u -> u {_source = f $ _source u})
+data SourceSide = SourceSide
+instance Access Command NetworkSide SourceSide where
+  grab _ = _source
+  lift _ f u = u {_source = f $ _source u}
 
 ------------------------------
 -- # Object (for physics) # --
 ------------------------------
 
 data Object = Object { 
-  _pos :: Position, -- Position
-  _size :: Direction, -- Size
-  _vel :: Velocity, -- Velocity
+  _pos :: Vector, -- Position
+  _size :: Vector, -- Size
+  _vel :: Vector, -- Velocity
   _angles :: Vector, -- Angles (YPR
-  _wish :: Direction, -- Wish
+  _wish :: Vector, -- Wish
   _mode :: PhysicsMode -- Mode
   } deriving Eq
 
-pos :: Object ~> Vector 
-pos = Access _pos (\f o -> o {_pos = f $ _pos o})
+data ObjectAttribute = Position | Size | Velocity | Angles | Wish
+instance Access Object Vector ObjectAttribute where
+  grab Position = _pos
+  grab Size = _size
+  grab Velocity = _vel
+  grab Angles = _angles
+  grab Wish = _wish
+  lift Position f o = o {_pos = f $ _pos o}
+  lift Size f o = o {_size = f $ _size o}
+  lift Velocity f o = o {_vel = f $ _vel o}
+  lift Angles f o = o {_angles = f $ _angles o}
+  lift Wish f o = o {_wish = f $ _wish o}
 
-size :: Object ~> Vector 
-size = Access _size (\f o -> o {_size = f $ _size o})
+yaw :: Compose Direction ObjectAttribute
+yaw = Compose X Angles
 
-vel :: Object ~> Vector 
-vel = Access _vel (\f o -> o {_vel = f $ _vel o})
+pitch :: Compose Direction ObjectAttribute
+pitch = Compose Y Angles
 
-angles :: Object ~> Vector 
-angles = Access _angles (\f o -> o {_angles = f $ _angles o})
-
-yaw :: Object ~> VectorComp 
-yaw = vecX . angles
-
-pitch :: Object ~> VectorComp 
-pitch = vecY . angles
-
-roll :: Object ~> VectorComp 
-roll = vecZ . angles
-
-wish :: Object ~> Vector 
-wish = Access _wish (\f o -> o {_wish = f $ _wish o})
-
-mode :: Object ~> PhysicsMode 
-mode = Access _mode (\f o -> o {_mode = f $ _mode o})
+roll :: Compose Direction ObjectAttribute
+roll = Compose Z Angles
 
 data PhysicsMode = OnGround | InAir deriving (Show, Eq)-- | OnLadder | InWater
+instance Access Object PhysicsMode Status where
+  grab _ = _mode
+  lift _ f o = o {_mode = f $ _mode o}
+
 instance Show Object where
   show obj = 
-    "{Pos: " ++ show (pos ~>> obj)
-    ++ ", Size: " ++ show (size ~>> obj)
-    ++ ", Vel: " ++ show (vel ~>> obj)
-    ++ ", Yaw: " ++ show (yaw ~>> obj)
-    ++ ", Pitch: " ++ show (pitch ~>> obj)
-    ++ ", Roll: " ++ show (roll ~>> obj)
-    ++ ", Wish: " ++ show (wish ~>> obj)
-    ++ ", Mode: " ++ show (mode ~>> obj)
+    "{Pos: " ++ show (Position ~>> obj)
+    ++ ", Size: " ++ show (Size ~>> obj)
+    ++ ", Vel: " ++ show (Velocity ~>> obj)
+    ++ ", Yaw: " ++ show (Angles ~> X ~>> obj)
+    ++ ", Pitch: " ++ show (Angles ~> Y ~>> obj)
+    ++ ", Roll: " ++ show (Angles ~> Z ~>> obj)
+    ++ ", Wish: " ++ show (Wish ~>> obj)
+    ++ ", Mode: " ++ show (Status ~>> obj)
     ++ "}"
 
 emptyObject :: Object
@@ -220,10 +251,10 @@ emptyObject = Object
   InAir
 
 oneCube :: Object
-oneCube = (size >@> 1) emptyObject
+oneCube = (Size >@> 1) emptyObject
 
 objAABB :: Object -> AABB
-objAABB o = (pos ~>> o, pos ~>> o + size ~>> o)
+objAABB o = (Position ~>> o, Position ~>> o + Size ~>> o)
 
 ---------------------
 -- # World Plane # --
@@ -240,9 +271,6 @@ data WorldPlane = WorldPlane (Vector,Vector,Vector) deriving (Show, Eq)
 -----------------
 
 -- Special Vector Names
-type Position = Vector 
-type Direction = Vector 
-type Velocity = Vector
 type AABB = (Vector,Vector)
 
 type VectorComp = Double
@@ -289,11 +317,11 @@ aabbCorners (Vector (ax,ay,az), Vector (bx,by,bz)) =
   ]
 
 -- Vector Accessors
-vecX :: Vector ~> VectorComp 
-vecX = Access (\(Vector (x,_,_)) -> x) (\f (Vector (x,y,z)) -> Vector (f x,y,z))
-
-vecY :: Vector ~> VectorComp 
-vecY = Access (\(Vector (_,y,_)) -> y) (\f (Vector (x,y,z)) -> Vector (x,f y,z))
-
-vecZ :: Vector ~> VectorComp 
-vecZ = Access (\(Vector (_,_,z)) -> z) (\f (Vector (x,y,z)) -> Vector (x,y,f z))
+data Direction = X | Y | Z
+instance Access Vector VectorComp Direction where
+  grab X (Vector (x,_,_)) = x
+  grab Y (Vector (_,y,_)) = y
+  grab Z (Vector (_,_,z)) = z
+  lift X f (Vector (x,y,z)) = Vector (f x,y,z)
+  lift Y f (Vector (x,y,z)) = Vector (x,f y,z)
+  lift Z f (Vector (x,y,z)) = Vector (x,y,f z)

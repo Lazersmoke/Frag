@@ -8,12 +8,6 @@ import Data.List.Split
 type ParseError = String
 type ErrorProne a = Either ParseError a
 
-parseWPL :: String -> ErrorProne [WorldPlane]
-parseWPL input = 
-  case map parseWP . lines $ input of
-    
-    (x:xs)
-
 parseWP :: String -> ErrorProne WorldPlane
 parseWP input = 
   case map parseVector . splitOn "|" $ input of

@@ -6,7 +6,7 @@ import Purity.Util
 import Data.Access
 
 doPhysics :: PhysicsDescriptor -> ServerState -> ServerState
-doPhysics pd ss = liftMap objects (doObjectPhysics pd ss) . liftMap players (doPlayerPhysics pd ss) $ ss 
+doPhysics pd ss = liftMap ObjectA (doObjectPhysics pd ss) . liftMap Players (doPlayerPhysics pd ss) $ ss 
 
 -- Move an object, all said and done
 doObjectPhysics :: PhysicsDescriptor -> ServerState -> Object -> Object
@@ -18,42 +18,56 @@ doObjectPhysics pd s =
   . tickAcceleration dt
   where
     dt = deltaTime pd
-    collideWithWorld = listApFold (map (\w x -> if intersectAABBWP (objAABB x) w then repairWPIntersection w x else set mode InAir x) . geometry . grab world $ s)
+    collideWithWorld = listApFold (map (\w x -> if intersectAABBWP (objAABB x) w then repairWPIntersection w x else set Status InAir x) . geometry . grab AccessWorld $ s)
 
 -- Do physics on a player; let objectphysics soak extra arguments
 doPlayerPhysics :: PhysicsDescriptor -> ServerState -> Player -> Player
-doPlayerPhysics = (lift object .) . doObjectPhysics 
+doPlayerPhysics = (lift ObjectA .) . doObjectPhysics 
 
 -- Move by velocity
 tickPosition :: Double -> Object -> Object
-tickPosition dt obj = pos >&> (+ scale dt (vel ~>> obj)) $ obj
+tickPosition dt obj = Position >&> (+ scale dt (Velocity ~>> obj)) $ obj
 
 -- Apply gravity to velocity
 applyGravity :: Double -> Double -> Object -> Object
-applyGravity dt grav = vel >&> subtract (Vector (0,grav * dt,0)) 
+applyGravity dt grav = Velocity >&> subtract (Vector (0,grav * dt,0)) 
 
 -- Apply friction to velocity
 applyFriction :: Double -> Double -> Object -> Object
-applyFriction dt fric obj = vel >&> subtract (scale (dt * fric) (vel ~>> obj)) $ obj
+applyFriction dt fric obj = Velocity >&> subtract (scale (dt * fric) (Velocity ~>> obj)) $ obj
 
 -- TODO: Rework groundedness
 -- Apply internal acceleration to velocity
 tickAcceleration :: Double -> Object -> Object
 tickAcceleration dt obj = accelerate dt obj
   where
-    accelerate = case mode ~>> obj of
+    accelerate = case Status ~>> obj of
       OnGround -> groundAccelerate 
       InAir -> airAccelerate
 
+-- How to accelerate in air:
+-- Find the wish direction, in relative coords
+-- Rotate that to absolute coords
+-- Remove vertical component
+-- Accelerate along that vector
 airAccelerate :: Double -> Object -> Object
-airAccelerate dt o = (accelerateVector dt . set vecY 0 . scale 5 . rotObj o $ wish ~>> o) o
+airAccelerate dt o = accelerateVector dt (scale 5 . (Y >@> 0) . rotObj o $ Wish ~>> o) o
+
+-- How to accelerate on the ground:
+-- Find the wish direction (relative)
+-- Rotate that only horizontally (not pitch)
+-- Amplify by 1,15,1
+-- Normalize and scale by 5 (set magnitude to 5)
+-- Accelerate along that vector
+groundAccelerate :: Double -> Object -> Object
+groundAccelerate dt obj = accelerateVector dt (scale 5 . rotObj obj $ Wish ~>> obj) obj
 
 -- Accelerate on a vector
 accelerateVector :: Double -> Vector -> Object -> Object
-accelerateVector dt along obj = vel >&> (+ finalChange) $ obj
+accelerateVector dt along obj = Velocity >&> (+ finalChange) $ obj
   where
     -- Current speed, as dot product on wishDir
-    currSpeed = dotProduct (normalizeVector along) (vel ~>> obj) 
+    currSpeed = dotProduct (normalizeVector along) (Velocity ~>> obj) 
     -- Max speed that we can add
     addSpeed = max (magnitude along - currSpeed) 0
     -- Actual speed to add
@@ -61,19 +75,17 @@ accelerateVector dt along obj = vel >&> (+ finalChange) $ obj
     accelSpeed = min (12 * dt * magnitude along) addSpeed
     finalChange = scale accelSpeed (normalizeVector along)
 
-groundAccelerate :: Double -> Object -> Object
-groundAccelerate dt obj = accelerateVector dt (scale 5 . (* Vector (1,15,1)) . rotatePitchYaw 0 (yaw ~>> obj) $ wish ~>> obj) obj
 
 repairWPIntersection :: WorldPlane -> Object -> Object
 repairWPIntersection wp obj = 
   if intersectAABBWP (objAABB obj) wp
-    then (mode >@> OnGround) . (vel >@> newvel) $ obj
+    then (if dotProduct nor (Vector (0,1,0)) > 0.1 then Status >@> OnGround else id) . (Velocity >@> newvel) $ obj
     else obj
   where
-    dp = dotProduct (vel ~>> obj) nor -- 1 if away, -1 if towards, 0 if _|_ etc
+    dp = dotProduct (Velocity ~>> obj) nor -- 1 if away, -1 if towards, 0 if _|_ etc
     newvel = if dp > 0
-      then vel ~>> obj
-      else vel ~>> obj - scale (springCo * dp) nor -- questionable method
+      then Velocity ~>> obj
+      else Velocity ~>> obj - scale (springCo * dp) nor -- questionable method
     nor = normalWP wp
     springCo = 1
 

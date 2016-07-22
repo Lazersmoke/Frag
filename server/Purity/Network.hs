@@ -33,13 +33,14 @@ addCommand cmds cmd = modifyMVar_ cmds $ return . (cmd:)
 sendMessages :: MVar [Command] -> Identifier -> WS.Connection -> IO ()
 sendMessages cmds pIdent conn = do
   -- Send all the matching messages' command statements to the client
-  mapM_ (sendMessage conn) =<< map (grab command) . filter matches <$> readMVar cmds
+  mapM_ (sendMessage conn) =<< map (grab CommandText) . filter matches <$> readMVar cmds
   -- Clear out the messages we sent
   pModifyMVar_ cmds $ filter (not . matches)
   threadDelay 1000
   sendMessages cmds pIdent conn
   where
-    matches c = (Server == source ~>> c) && (pIdent == cmdId ~>> c)
+    matches :: Command -> Bool
+    matches c = (Server == SourceSide ~>> c) && (pIdent == Identity ~>> c)
 
 
 waitForMessages :: MVar [Command] -> Identifier -> WS.Connection -> IO ()

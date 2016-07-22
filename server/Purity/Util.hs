@@ -13,7 +13,7 @@ import Data.List
 import Data.Maybe
 
 testObject :: Object
-testObject = (wish >@> Vector (1,0,0)) . (vel >@> Vector (-1,-1,-1)) $ oneCube
+testObject = (Wish >@> Vector (1,0,0)) . (Velocity >@> Vector (-1,-1,-1)) $ oneCube
 
 testWorld :: World
 testWorld = World
@@ -26,7 +26,7 @@ testWorld = World
   }
 
 testServerState :: ServerState
-testServerState = (objects >&> (testObject:)) . (world >@> testWorld) $ freshServerState 
+testServerState = (ObjectA >&> (testObject:)) . (AccessWorld >@> testWorld) $ freshServerState 
 
 -- # Monad Generics # --
 
@@ -75,31 +75,30 @@ updateReady ss = foldl (flip id) ss . map (\u -> (\x -> specificPlayer (cmdId ~>
 
 -- Add a object to an existing ServerState
 addObject :: Object -> ServerState -> ServerState
-addObject obj = objects >&> (obj:)
+addObject obj = ObjectA >&> (obj:)
 
 -- Drop an object
 dropObject :: Object -> ServerState -> ServerState
-dropObject obj = objects >&> delete obj
+dropObject obj = ObjectA >&> delete obj
 
 
 -- # ServerState Other Manip # --
 
 -- Increment the Tick
 incrementTick :: ServerState -> ServerState
-incrementTick = currentTick >&> (+1)
+incrementTick = CurrentTick >&> (+1)
 
 -- Setup everything to start the game
 startGame :: ServerState -> ServerState
-startGame = (phase >@> Playing) . liftMap players (status >@> Respawning)
-
+startGame = (Status >@> Playing) . liftMap Players (Status >@> Respawning)
 
 -- Tell a connection about the Game Phase
 tellGamePhase :: MVar ServerState -> WS.Connection -> IO ()
-tellGamePhase ss = tellConnection ss $ ("Game Phase is " ++) . show . grab phase 
+tellGamePhase ss = tellConnection ss $ ("Game Phase is " ++) . show . grab Status
 
 -- Tell a connection the list of players
 tellPlayerList :: MVar ServerState -> WS.Connection -> IO ()
-tellPlayerList ss = tellConnection ss $ show . map (grab name) . grab players
+tellPlayerList ss = tellConnection ss $ show . map (grab Name) . grab Players
 
 -- Tell a player something about the state
 tellConnection :: MVar ServerState -> (ServerState -> String) -> WS.Connection -> IO ()
@@ -166,14 +165,14 @@ maybeRead = fmap fst . listToMaybe . reads
 -- TODO: add genPlayerMessage to add player info. also update on client to accept new format
 generateMessage :: ServerState -> String
 generateMessage s = 
-  "{\"objects\":" ++ genListMessage genObjMessage (objects ~>> s) 
-  ++ ", \"players\": " ++ genListMessage genObjMessage (map (object ~>>) $ players ~>> s) 
+  "{\"objects\":" ++ genListMessage genObjMessage (ObjectA ~>> s) 
+  ++ ", \"players\": " ++ genListMessage genObjMessage (map (ObjectA ~>>) $ Players ~>> s) 
   ++ "}"
   where
     genListMessage xf xs = "[" ++ (intercalate "," . map xf $ xs) ++ "]"
     genObjMessage obj = 
-      "{\"pos\":" ++ genVecMessage (pos ~>> obj) 
-      ++ ",\"size\":" ++ genVecMessage (size ~>> obj) 
+      "{\"pos\":" ++ genVecMessage (Position ~>> obj) 
+      ++ ",\"size\":" ++ genVecMessage (Size ~>> obj) 
       ++ ",\"dir\":" ++ genVecMessage (facingDir obj) 
       ++ "}"
     genVecMessage (Vector (x,y,z)) = 
