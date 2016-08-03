@@ -12,22 +12,6 @@ import Data.Access
 import Data.List
 import Data.Maybe
 
-testObject :: Object
-testObject = (Wish >@> Vector (1,0,0)) . (Velocity >@> Vector (-1,-1,-1)) $ oneCube
-
-testWorld :: World
-testWorld = World
-  {geometry = 
-    [WorldPlane (Vector (-5,-2,-5), Vector (-5,-2,5), Vector (5,-2,5))
-    ,WorldPlane (Vector (-5,-2,-5), Vector (5,-2,5), Vector (5,-2,-5))
-    ,WorldPlane (Vector (-5,10, 5), Vector (-5,-2, 5), Vector (-5,-2,-5))
-    ]
-  ,levelName = "testlevel"
-  }
-
-testServerState :: ServerState
-testServerState = (ObjectA >&> (testObject:)) . (AccessWorld >@> testWorld) $ freshServerState 
-
 -- # Monad Generics # --
 
 -- Pass an argument to two different actions, compose with >>, return second

@@ -9,24 +9,26 @@ import Data.Access
 performCommand :: Command -> Homomorphism ServerState
 performCommand cmd = case firstWord $ CommandText ~>> cmd of
   -- cmdObject :: Command -> ServerState ~> Object
-  "+forward" -> CmdObject cmd >&> Wish >&> Z >@> 1
-  "-forward" -> CmdObject cmd >&> Wish >&> Z >@> 0
+  "+forward" -> theWish ~> Z >@> 1
+  "-forward" -> theWish ~> Z >@> 0
 
-  "+back" -> CmdObject cmd >&> Wish >&> Z >@> (-1)
-  "-back" -> CmdObject cmd >&> Wish >&> Z >@> 0
+  "+back" -> theWish ~> Z >@> (-1)
+  "-back" -> theWish ~> Z >@> 0
 
-  "+right" -> CmdObject cmd >&> Wish >&> X >@> 1
-  "-right" -> CmdObject cmd >&> Wish >&> X >@> 0
+  "+right" -> theWish ~> X >@> 1
+  "-right" -> theWish ~> X >@> 0
 
-  "+left" -> CmdObject cmd >&> Wish >&> X >@> (-1)
-  "-left" -> CmdObject cmd >&> Wish >&> X >@> 0
+  "+left" -> theWish ~> X >@> (-1)
+  "-left" -> theWish ~> X >@> 0
 
   "+jump" -> CmdObject cmd >&> ((Status >@> InAir) . (Wish >&> Y >@> 1))
-  "-jump" -> CmdObject cmd >&> Wish >&> Y >@> 0
+  "-jump" -> theWish ~> Y >@> 0
 
   -- "look dx dy" 
   "look" -> playerLook cmd
   _ -> error ("Invalid Command: " ++ (CommandText ~>> cmd))
+  where 
+    theWish = CmdObject cmd ~> Wish
 
 performLobbyCommand :: Command -> Homomorphism ServerState
 performLobbyCommand cmd = case firstWord $ CommandText ~>> cmd of

@@ -18,7 +18,7 @@ doObjectPhysics pd s =
   . tickAcceleration dt
   where
     dt = deltaTime pd
-    collideWithWorld = listApFold (map (\w x -> if intersectAABBWP (objAABB x) w then repairWPIntersection w x else set Status InAir x) . geometry . grab AccessWorld $ s)
+    collideWithWorld = listApFold (map (\w x -> if intersectAABBWP (objAABB x) w then repairWPIntersection w x else set Status InAir x) . grab Geometry . grab AccessWorld $ s)
 
 -- Do physics on a player; let objectphysics soak extra arguments
 doPlayerPhysics :: PhysicsDescriptor -> ServerState -> Player -> Player

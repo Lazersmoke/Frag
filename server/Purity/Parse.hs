@@ -1,5 +1,3 @@
-module Purity.Parse where
-
 import Purity.Data
 import Purity.Util
 

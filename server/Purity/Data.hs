@@ -60,7 +60,7 @@ data GameRules = GameRules {
 -- Default Server State
 freshServerState :: ServerState
 freshServerState = ServerState 
-  World {levelName = "", geometry = []}
+  World {_levelName = "", _geometry = []}
   [] -- No Players
   [] -- No Objects
   Lobby -- Start in Lobby
@@ -261,10 +261,19 @@ objAABB o = (Position ~>> o, Position ~>> o + Size ~>> o)
 ---------------------
 
 data World = World {
-  levelName :: String,
-  geometry :: [WorldPlane]
+  _levelName :: String,
+  _geometry :: [WorldPlane]
   } deriving (Show, Eq)
 data WorldPlane = WorldPlane (Vector,Vector,Vector) deriving (Show, Eq)
+
+data Geometry = Geometry
+instance Access World [WorldPlane] Geometry where
+  grab _ = _geometry
+  lift _ f w = w {_geometry = f $ _geometry w}
+
+instance Access World String Name where
+  grab _ = _levelName
+  lift _ f w = w {_levelName = f $ _levelName w}
 
 -----------------
 -- # Vectors # --
