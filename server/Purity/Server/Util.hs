@@ -150,13 +150,9 @@ maybeRead = fmap fst . listToMaybe . reads
 generateMessage :: ServerState -> String
 generateMessage s = case Status ~>> s of
   Playing -> "Objects " ++ genListMessage genObjMessage (ObjectA ~>> s) ++ "\nPlayers " ++ genListMessage genObjMessage (map (grab ObjectA) $ Players ~>> s)
-  Lobby -> "Lobby Status: " ++ genListMessage genLobbyMessage (Players ~>> s)
+  Lobby -> "asdf"
   where
-    genLobbyMessage p = 
-      Name ~>> p ++ 
-      " (" ++ Identity ~>> p ++ ") is " ++ 
-      if Ready ~>> p then "Ready" else "Not Ready"
-    genListMessage xf xs = "[" ++ (intercalate "," . map xf $ xs) ++ "]"
+    genListMessage xf xs = intercalate "," . map xf $ xs
     -- <x,y,z>@<a,b,c>-><w,p,l> = XxYxZ object at (A,B,C), pointing in direction (W,P,L)
     genObjMessage obj = 
       show (Size ~>> obj) ++ "@" ++ show (Position ~>> obj) ++ "->" ++ show (facingDir obj) 
