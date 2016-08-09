@@ -2,11 +2,9 @@
 
 module Main where
 
-import Purity.Util
-import Purity.Data -- REPL import
-import Purity.Network
-import Purity.Control
-import Purity.World
+import Purity.Server.Network
+import Purity.Server.Control
+import Purity.Server.World
 
 import System.IO
 import Control.Concurrent
