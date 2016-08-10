@@ -25,30 +25,31 @@ beginRenderLoop mvarRender = do
   GLFW.makeContextCurrent maybeWin
   case maybeWin of
     Nothing -> do
-      plog "ERROR: No OpenGL Window Created"
+      plog Error "No OpenGL Window Created"
       GLFW.terminate
     Just win -> do
       GLFW.setWindowCloseCallback win (Just GLFW.destroyWindow)--I know how much you like explosions, Jimmy!
       GLFW.setKeyCallback win (Just $ keyboardCallback mvarRender) -- I pressa da button yass vary mucuh
-      plog "OpenGL Window Created"
-      renderLoop (draw mvarRender win) win
+      plog Log "OpenGL Window Created"
+      renderLoop (draw mvarRender) win
       GLFW.destroyWindow win
       GLFW.terminate
 
-renderLoop :: IO () -> GLFW.Window -> IO ()
-renderLoop drawFunc win = 
-  GLFW.windowShouldClose win >>= flip unless (do
-    drawFunc
+renderLoop :: (GLFW.Window -> IO ()) -> GLFW.Window -> IO ()
+renderLoop drawFunc win = do
+  close <- GLFW.windowShouldClose win 
+  unless close $ do
+    drawFunc win
     GLFW.swapBuffers win
     GLFW.pollEvents
-    renderLoop drawFunc win)
+    renderLoop drawFunc win
 
 draw :: MVar Mode -> GLFW.Window -> IO ()
 draw mvarRender win = grab DrawFunction <$> readMVar mvarRender >>= ($ win)
       
 initialize :: IO (Maybe GLFW.Window)
 initialize = do
-  plog "Initializing OpenGL"
+  plog Log "Initializing OpenGL"
   -- TODO: Handle the output instead of black holing it
   GLFW.init
   -- GLFW.getVersion >>= print
@@ -62,7 +63,7 @@ initialize = do
     Nothing -- Window (no monitor yet)
 
 breakTheGlass :: GLFW.ErrorCallback
-breakTheGlass err desc = plog $ show err ++ " | " ++ desc
+breakTheGlass err desc = plog Error $ show err ++ " | " ++ desc
 
 keyboardCallback :: MVar Mode -> GLFW.KeyCallback
 keyboardCallback mvarRender w k i ks m = grab KeyCallback <$> readMVar mvarRender >>= \mode -> mode w k i ks m

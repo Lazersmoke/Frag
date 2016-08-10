@@ -36,34 +36,24 @@ instance Access LobbyEntry Bool Ready where
   lift _ f e = e {_ready = f $ _ready e}
 
 
-data DisplayMode = Lobby [LobbyEntry] | InGame | Demo deriving Show
 data Mode = Mode {
-  _displayData :: DisplayMode,
   _drawFunction :: GLFW.Window -> IO (),
   _keyboardCallback :: GLFW.KeyCallback,
   _mouseCallback :: GLFW.MouseButtonCallback
   }
 
-buildMode :: DisplayMode -> (GLFW.Window -> IO ()) -> GLFW.KeyCallback -> GLFW.MouseButtonCallback -> Mode
-buildMode dm draw key mouse = Mode {
-  _displayData = dm,
+buildMode :: (GLFW.Window -> IO ()) -> GLFW.KeyCallback -> GLFW.MouseButtonCallback -> Mode
+buildMode draw key mouse = Mode {
   _drawFunction = draw,
   _keyboardCallback = key,
   _mouseCallback = mouse
   }
 
-defaultMode :: Mode
-defaultMode = buildMode Demo (const (return ())) (\_ _ _ _ _ -> return ()) (\_ _ _ _ -> return ()) 
 
 data DrawFunction = DrawFunction
 instance Access Mode (GLFW.Window -> IO ()) DrawFunction where
   grab _ = _drawFunction
   lift _ f m = m {_drawFunction = f $ _drawFunction m}   
-
-data Display = Display
-instance Access Mode DisplayMode Display where
-  grab _ = _displayData
-  lift _ f m = m {_displayData = f $ _displayData m}   
 
 data KeyCallback = KeyCallback
 instance Access Mode GLFW.KeyCallback KeyCallback where
@@ -74,3 +64,5 @@ data MouseButtonCallback = MouseButtonCallback
 instance Access Mode GLFW.MouseButtonCallback MouseButtonCallback where
   grab _ = _mouseCallback
   lift _ f m = m {_mouseCallback = f $ _mouseCallback m} 
+
+data LogLevel = Log | Warn | Error

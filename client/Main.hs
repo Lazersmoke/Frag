@@ -2,6 +2,7 @@
 module Main where
 
 import Purity.Client.Data
+import Purity.Client.DefaultMode
 import Purity.Client.Render
 import Purity.Client.Network
 

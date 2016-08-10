@@ -1,14 +1,15 @@
-module Purity.Client.Lobby where
+module Purity.Client.Lobby (lobbyMode) where
 
 import Purity.Client.Data
+import Purity.Client.DefaultMode
 
 import Control.Monad
 import qualified Graphics.Rendering.OpenGL as GL
 import Graphics.Rendering.OpenGL (($=))
 import qualified Graphics.UI.GLFW as GLFW
 
-lobbyMode :: Mode
-lobbyMode = buildMode (Lobby []) render keyboard mouse
+lobbyMode :: [LobbyEntry] -> Mode
+lobbyMode entries = buildMode (render entries) keyboard defaultMouseButtonCallback
 
 keyboard :: GLFW.KeyCallback
 keyboard win key _ keyState _ = when (key == GLFW.Key'Escape && keyState == GLFW.KeyState'Pressed) (GLFW.setWindowShouldClose win True)
