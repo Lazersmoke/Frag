@@ -3,6 +3,7 @@ module Purity.Server.World where
 import Purity.Server.Data
 
 import Data.Access
+import Data.Maybe
 import Control.Monad
 import Text.Parsec
 import Text.Parsec.String
@@ -23,9 +24,9 @@ getServerState fn = do
 
 parseWPL :: Parser [WorldPlane]
 parseWPL = do
-  wpl <- worldPlane `endBy` endOfLine
+  wpl <- (fmap Just worldPlane <|> (comment >> return Nothing)) `endBy` endOfLine
   eof
-  return wpl
+  return . catMaybes $ wpl
 
 comment :: Parser () 
 comment = void $ between (char ':') (char ';') (many (alphaNum <|> oneOf "+-/*" <|> space)) 

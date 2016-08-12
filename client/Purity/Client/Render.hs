@@ -3,15 +3,10 @@ module Purity.Client.Render where
 
 import Purity.Client.Data
 import Purity.Client.Util 
-import qualified Purity.Client.Demo as Demo
-import qualified Purity.Client.Lobby as Lobby
-import qualified Purity.Client.Game as Game
 
 import Data.Access
 
 import qualified Graphics.UI.GLFW as GLFW
-import qualified Graphics.Rendering.OpenGL as GL
-import Graphics.Rendering.OpenGL (($=))
 
 import Control.Concurrent
 import Control.Monad
@@ -51,7 +46,7 @@ initialize :: IO (Maybe GLFW.Window)
 initialize = do
   plog Log "Initializing OpenGL"
   -- TODO: Handle the output instead of black holing it
-  GLFW.init
+  _ <- GLFW.init
   -- GLFW.getVersion >>= print
   GLFW.setErrorCallback (Just breakTheGlass) -- Jimmy! Just do it!
   GLFW.windowHint $ GLFW.WindowHint'DepthBits 16

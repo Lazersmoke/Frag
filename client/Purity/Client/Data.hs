@@ -5,10 +5,9 @@ module Purity.Client.Data where
 
 import Data.Access
 
-import Control.Concurrent
 import qualified Graphics.UI.GLFW as GLFW
 
-data ServerMessage = NameQuery | LobbyUpdate [LobbyEntry] deriving Show
+data ServerMessage = NameQuery | LobbyUpdate [LobbyEntry] | GameUpdate [Object] [(String,Object)] deriving Show
 
 -- LobbyEntry Name Identifier ReadyStatus
 data LobbyEntry = LobbyEntry {
@@ -66,3 +65,53 @@ instance Access Mode GLFW.MouseButtonCallback MouseButtonCallback where
   lift _ f m = m {_mouseCallback = f $ _mouseCallback m} 
 
 data LogLevel = Log | Warn | Error
+
+data Object = Object {
+  _pos :: Vector,
+  _size :: Vector,
+  _dir :: Vector
+  } deriving Show
+
+emptyObject :: Object
+emptyObject = Object {_pos = 0, _size = 0, _dir = 0}
+
+data ObjectAttr = Position | Size | FacingDirection
+instance Access Object Vector ObjectAttr where
+  grab Position = _pos
+  grab Size = _size
+  grab FacingDirection = _dir
+  lift Position f o = o {_pos = f $ _pos o}
+  lift Size f o = o {_size = f $ _size o}
+  lift FacingDirection f o = o {_dir = f $ _dir o}
+
+
+data RenderPlane = RenderPlane Vector Vector Vector 
+
+data Vector = Vector Double Double Double
+
+emptyVector :: Vector
+emptyVector = 0
+
+unitVector :: Vector
+unitVector = emptyVector + 1
+
+data Direction = X | Y | Z
+
+instance Num Vector where
+  (+) (Vector x1 y1 z1) (Vector x2 y2 z2) = Vector (x1 + x2) (y1 + y2) (z1 + z2)
+  (*) (Vector x1 y1 z1) (Vector x2 y2 z2) = Vector (x1 * x2) (y1 * y2) (z1 * z2)
+  abs (Vector x y z) = Vector (abs x) (abs y) (abs z)
+  signum (Vector x y z) = Vector (signum x) (signum y) (signum z)
+  negate (Vector x y z) = Vector (negate x) (negate y) (negate z)
+  fromInteger i = Vector (fromInteger i) (fromInteger i) (fromInteger i)
+
+instance Access Vector Double Direction where
+  grab X (Vector x _ _) = x
+  grab Y (Vector _ y _) = y
+  grab Z (Vector _ _ z) = z
+  lift X f (Vector x y z) = Vector (f x) y z
+  lift Y f (Vector x y z) = Vector x (f y) z
+  lift Z f (Vector x y z) = Vector x y (f z)
+
+instance Show Vector where
+  show (Vector x y z) = "<" ++ show x ++ "," ++ show y ++ "," ++ show z ++ ">"

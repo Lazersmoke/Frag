@@ -3,10 +3,9 @@ module Purity.Client.Network where
 
 import Purity.Client.Data
 import Purity.Client.Lobby
+import Purity.Client.Game
 import Purity.Client.Util
 import Purity.Client.Parse
-
-import Data.Access
 
 import Control.Concurrent
 import Control.Monad
@@ -28,7 +27,8 @@ wsClient mvarMode conn = forever $ do
      plog Log $ "Received a " ++ show serverMsg ++ " from the server"
      case serverMsg of
        NameQuery -> sendName conn
-       LobbyUpdate entries -> setMode mvarMode (lobbyMode entries)
+       LobbyUpdate entries -> setMode mvarMode (lobbyMode entries conn)
+       GameUpdate objs plas -> setMode mvarMode (gameMode objs plas testWPL)
 
 sendName :: WS.Connection -> IO ()
 sendName conn = WS.sendTextData conn . T.pack $ "lazersmoke"

@@ -149,13 +149,20 @@ maybeRead = fmap fst . listToMaybe . reads
 -- TODO: add genPlayerMessage to add player info. also update on client to accept new format
 generateMessage :: ServerState -> String
 generateMessage s = case Status ~>> s of
-  Playing -> "Objects " ++ genListMessage genObjMessage (ObjectA ~>> s) ++ "\nPlayers " ++ genListMessage genObjMessage (map (grab ObjectA) $ Players ~>> s)
-  Lobby -> "asdf"
+  Playing -> "Objects " ++ genListMessage genObjMessage (ObjectA ~>> s) ++ "\nPlayers " ++ genListMessage genPlayerMessage (Players ~>> s)
+  Lobby -> "Lobby Status: " ++ genListMessage genLobbyMessage (Players ~>> s)
   where
-    genListMessage xf xs = intercalate "," . map xf $ xs
+    genLobbyMessage p = 
+      Name ~>> p ++ 
+      " (" ++ Identity ~>> p ++ ") is " ++ 
+      if Ready ~>> p then "Ready" else "Not Ready"
+    genListMessage xf xs = "[" ++ (intercalate "," . map xf $ xs) ++ "]"
     -- <x,y,z>@<a,b,c>-><w,p,l> = XxYxZ object at (A,B,C), pointing in direction (W,P,L)
     genObjMessage obj = 
       show (Size ~>> obj) ++ "@" ++ show (Position ~>> obj) ++ "->" ++ show (facingDir obj) 
+    -- "lazersmoke: <x,y,z ... w,p,l>"
+    genPlayerMessage pla = 
+      (Identity ~>> pla) ++ ": " ++ genObjMessage (ObjectA ~>> pla)
       
 -- Credit to /u/Taylee <3
 rotatePitchYaw :: VectorComp -> VectorComp -> Vector -> Vector

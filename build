@@ -1,2 +1,2 @@
 cabal clean
-cabal build --ghc-options="-Wall"
+cabal build --ghc-options="-Wall" $1
