@@ -26,3 +26,22 @@ triangle3D a b c = forM_ [a,b,c] $ GL.vertex . vec2vert
  
 vec2vert :: Vector -> GL.Vertex3 GL.GLdouble
 vec2vert (Vector x y z) = GL.Vertex3 x y z
+
+crossProduct :: Vector -> Vector -> Vector
+crossProduct (Vector a1 a2 a3) (Vector b1 b2 b3) = 
+  Vector 
+    (a2 * b3 - a3 * b2)
+    (a3 * b1 - a1 * b3)
+    (a1 * b2 - a2 * b1)
+
+magnitude :: Vector -> Double
+magnitude (Vector a b c) = sqrt $ a**2 + b**2 + c**2
+
+normalizeVector :: Vector -> Vector
+normalizeVector vec = cleansed * vec 
+  where
+    cleansed = if magnitude vec > 0 then 1 / magnitude vec else 0
+
+
+
+

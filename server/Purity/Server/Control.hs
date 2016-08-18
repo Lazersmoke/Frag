@@ -47,23 +47,19 @@ mainLoop commands ss lastTickStart = do
       let 
         ticked = 
           incrementTick -- Increment the tick counter
-          . rotatePlayer -- Rotate the player for cinematic effect
           . doPhysics defaultPhysicsDescriptor {deltaTime = dt} -- Do the physics
           . performCommands latestIncomingCommands -- Do all the user actions
           $ ss -- Apply to ServerState
       -- Send it to each player
       tellPlayersState commands ticked
       -- Debug it to console
-      print . map (grab Angles . grab ObjectA) . grab Players $ ticked
+      print . map (facingDir . grab ObjectA) . grab Players $ ticked
       -- (print . map command . concatMap userCmds . players)
       -- Wait a tick
       threadDelay 10000
       -- Recurse
       mainLoop commands ticked tickStartTime
 
---TODO remove this
-rotatePlayer :: ServerState -> ServerState
-rotatePlayer = liftMap Players (ObjectA ~> yaw >&> (+0.1))
 
 tellPlayersState :: MVar [Command] -> ServerState -> IO ()
 tellPlayersState commands ss = pModifyMVar_ commands (++ map mkMessage (Players ~>> ss))

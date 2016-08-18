@@ -5,6 +5,7 @@ import Purity.Client.Data
 import Purity.Client.DefaultMode
 import Purity.Client.Render
 import Purity.Client.Network
+import Purity.Client.Parse
 
 -- REPL Imports
 import qualified Graphics.UI.GLFW as GLFW
@@ -15,6 +16,7 @@ import Control.Concurrent
 
 main :: IO ()
 main = do
+  print testWPL
   mvarRender <- newMVar (defaultMode :: Mode)
   _ <- forkIO $ beginRenderLoop mvarRender
   connectToServer "localhost" mvarRender

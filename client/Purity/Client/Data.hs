@@ -6,6 +6,7 @@ module Purity.Client.Data where
 import Data.Access
 
 import qualified Graphics.UI.GLFW as GLFW
+import qualified Graphics.Rendering.OpenGL as GL
 
 data ServerMessage = NameQuery | LobbyUpdate [LobbyEntry] | GameUpdate [Object] [(String,Object)] deriving Show
 
@@ -38,14 +39,16 @@ instance Access LobbyEntry Bool Ready where
 data Mode = Mode {
   _drawFunction :: GLFW.Window -> IO (),
   _keyboardCallback :: GLFW.KeyCallback,
-  _mouseCallback :: GLFW.MouseButtonCallback
+  _mouseCallback :: GLFW.MouseButtonCallback,
+  _mousePosCallback :: GLFW.CursorPosCallback
   }
 
-buildMode :: (GLFW.Window -> IO ()) -> GLFW.KeyCallback -> GLFW.MouseButtonCallback -> Mode
-buildMode draw key mouse = Mode {
+buildMode :: (GLFW.Window -> IO ()) -> GLFW.KeyCallback -> GLFW.MouseButtonCallback -> GLFW.CursorPosCallback -> Mode
+buildMode draw key mouse mousep = Mode {
   _drawFunction = draw,
   _keyboardCallback = key,
-  _mouseCallback = mouse
+  _mouseCallback = mouse,
+  _mousePosCallback = mousep
   }
 
 
@@ -63,6 +66,11 @@ data MouseButtonCallback = MouseButtonCallback
 instance Access Mode GLFW.MouseButtonCallback MouseButtonCallback where
   grab _ = _mouseCallback
   lift _ f m = m {_mouseCallback = f $ _mouseCallback m} 
+
+data CursorPosCallback = CursorPosCallback
+instance Access Mode GLFW.CursorPosCallback CursorPosCallback where
+  grab _ = _mousePosCallback
+  lift _ f m = m {_mousePosCallback = f $ _mousePosCallback m} 
 
 data LogLevel = Log | Warn | Error
 
@@ -85,7 +93,7 @@ instance Access Object Vector ObjectAttr where
   lift FacingDirection f o = o {_dir = f $ _dir o}
 
 
-data RenderPlane = RenderPlane Vector Vector Vector 
+data RenderPlane = RenderPlane Vector Vector Vector deriving Show
 
 data Vector = Vector Double Double Double
 
@@ -115,3 +123,9 @@ instance Access Vector Double Direction where
 
 instance Show Vector where
   show (Vector x y z) = "<" ++ show x ++ "," ++ show y ++ "," ++ show z ++ ">"
+
+toGLVec :: Vector -> GL.Vector3 GL.GLdouble
+toGLVec (Vector x y z) = GL.Vector3 x y z
+
+toGLVert :: Vector -> GL.Vertex3 GL.GLdouble
+toGLVert (Vector x y z) = GL.Vertex3 x y z

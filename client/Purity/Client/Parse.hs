@@ -8,6 +8,7 @@ import Data.Maybe
 import Control.Monad
 import Text.Parsec
 import Text.Parsec.String
+import qualified Text.ParserCombinators.Parsec.Number as P
 
 testWPL :: [RenderPlane]
 {-# NOINLINE testWPL #-}
@@ -88,18 +89,22 @@ renderPlane = do
 vector :: Parser Vector
 vector = do
   void $ char '<'
-  x <- number
+  x <- vecNum
   void $ char ','
-  y <- number
+  y <- vecNum
   void $ char ','
-  z <- number
+  z <- vecNum
   void $ char '>'
   return $ Vector x y z
 
-number :: Parser Double
-number = do
-  sign <- anyChar
+vecNum :: Parser Double
+vecNum = ap P.sign (P.floating2 True)
+{-
+vecNum :: Parser Double
+vecNum = do
+  sign <- (char '-' >> return True) <|> (optional (char '+') >> return False)
   num <- many1 digit
   _ <- optional (char '.')
   numTwo <- many digit
-  return . (if sign == '-' then negate else id) . (read :: String -> Double) $ num ++ numTwo
+  return . (if sign then negate else id) . (read :: String -> Double) $ num ++ "." ++ numTwo
+  -}

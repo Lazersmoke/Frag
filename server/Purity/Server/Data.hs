@@ -7,6 +7,7 @@
 module Purity.Server.Data where
 
 import Data.Access
+import Data.List.Split
 
 (~>) :: b -> a -> Compose a b
 (~>) = flip Compose 
@@ -287,7 +288,9 @@ type VectorComp = Double
 newtype Vector = Vector (VectorComp,VectorComp,VectorComp) deriving (Eq)
 
 instance Show Vector where
-  show (Vector (x,y,z)) = "<" ++ show x ++ "," ++ show y ++ "," ++ show z ++ ">"
+  show (Vector (x,y,z)) = "<" ++ showNum x ++ "," ++ showNum y ++ "," ++ showNum z ++ ">"
+    where
+      showNum n = head . splitOn "e" $ show ((fromIntegral . round) (n * 100) / 100)
 
 instance Num Vector where
   (+) (Vector (ax,ay,az)) (Vector (bx,by,bz)) = Vector (ax+bx,ay+by,az+bz)

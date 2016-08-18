@@ -12,7 +12,7 @@ import qualified Graphics.UI.GLFW as GLFW
 import qualified Network.WebSockets as WS
 
 lobbyMode :: [LobbyEntry] -> WS.Connection -> Mode
-lobbyMode entries conn = buildMode (render entries) (keyboard conn) defaultMouseButtonCallback
+lobbyMode entries conn = buildMode (render entries) (keyboard conn) defaultMouseButtonCallback defaultCursorPosCallback
 
 keyboard :: WS.Connection -> GLFW.KeyCallback
 keyboard conn win key _ keyState _ = do
@@ -23,7 +23,6 @@ render :: [LobbyEntry] -> GLFW.Window -> IO ()
 render entries win = do
   (w,h) <- GLFW.getFramebufferSize win
   let entryHeight = fromIntegral w / fromIntegral (length entries)
-  GL.cullFace $= Just GL.Back
   GL.depthFunc $= Just GL.Less
   GL.viewport $= (GL.Position 0 0,GL.Size (fromIntegral w) (fromIntegral h))
   GL.clear [GL.ColorBuffer,GL.DepthBuffer]

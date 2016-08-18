@@ -23,8 +23,11 @@ beginRenderLoop mvarRender = do
       plog Error "No OpenGL Window Created"
       GLFW.terminate
     Just win -> do
+      --GLFW.setCursorInputMode win GLFW.CursorInputMode'Disabled
+      GLFW.setCursorPos win 0 0
       GLFW.setWindowCloseCallback win (Just GLFW.destroyWindow)--I know how much you like explosions, Jimmy!
       GLFW.setKeyCallback win (Just $ keyboardCallback mvarRender) -- I pressa da button yass vary mucuh
+      GLFW.setCursorPosCallback win (Just $ cursorPosCallback mvarRender) -- I pressa da button yass vary mucuh
       plog Log "OpenGL Window Created"
       renderLoop (draw mvarRender) win
       GLFW.destroyWindow win
@@ -62,4 +65,7 @@ breakTheGlass err desc = plog Error $ show err ++ " | " ++ desc
 
 keyboardCallback :: MVar Mode -> GLFW.KeyCallback
 keyboardCallback mvarRender w k i ks m = grab KeyCallback <$> readMVar mvarRender >>= \mode -> mode w k i ks m
+
+cursorPosCallback :: MVar Mode -> GLFW.CursorPosCallback
+cursorPosCallback mvarRender w x y = grab CursorPosCallback <$> readMVar mvarRender >>= \mode -> mode w x y
 
