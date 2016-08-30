@@ -19,7 +19,8 @@ main = do
   print testWPL
   mvarRender <- newMVar (defaultMode :: Mode)
   _ <- forkIO $ beginRenderLoop mvarRender
-  connectToServer "localhost" mvarRender
+  startDemo mvarRender
+  --connectToServer "localhost" mvarRender
 
 
 -- REPL Validation

@@ -35,15 +35,16 @@ instance Access LobbyEntry Bool Ready where
   grab _ = _ready
   lift _ f e = e {_ready = f $ _ready e}
 
+type Renderer = GL.Program -> GLFW.Window -> IO ()
 
 data Mode = Mode {
-  _drawFunction :: GLFW.Window -> IO (),
+  _drawFunction :: Renderer,
   _keyboardCallback :: GLFW.KeyCallback,
   _mouseCallback :: GLFW.MouseButtonCallback,
   _mousePosCallback :: GLFW.CursorPosCallback
   }
 
-buildMode :: (GLFW.Window -> IO ()) -> GLFW.KeyCallback -> GLFW.MouseButtonCallback -> GLFW.CursorPosCallback -> Mode
+buildMode :: Renderer -> GLFW.KeyCallback -> GLFW.MouseButtonCallback -> GLFW.CursorPosCallback -> Mode
 buildMode draw key mouse mousep = Mode {
   _drawFunction = draw,
   _keyboardCallback = key,
@@ -53,7 +54,7 @@ buildMode draw key mouse mousep = Mode {
 
 
 data DrawFunction = DrawFunction
-instance Access Mode (GLFW.Window -> IO ()) DrawFunction where
+instance Access Mode Renderer DrawFunction where
   grab _ = _drawFunction
   lift _ f m = m {_drawFunction = f $ _drawFunction m}   
 

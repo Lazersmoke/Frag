@@ -38,10 +38,19 @@ magnitude :: Vector -> Double
 magnitude (Vector a b c) = sqrt $ a**2 + b**2 + c**2
 
 normalizeVector :: Vector -> Vector
-normalizeVector vec = cleansed * vec 
+normalizeVector vec = Vector c c c * vec 
   where
-    cleansed = if magnitude vec > 0 then 1 / magnitude vec else 0
+    c = if magnitude vec > 0 then 1 / magnitude vec else 0
 
+dotProduct :: Vector -> Vector -> Double
+dotProduct (Vector ax ay az) (Vector bx by bz) = (ax*bx)+(ay*by)+(az*bz)
 
+-- Credit to /u/Taylee <3
+rotatePitchYaw :: Double -> Double -> Vector -> Vector
+rotatePitchYaw dPitch dYaw (Vector x y z) = 
+  Vector
+    (cos dYaw * x + sin dYaw * (sin dPitch * y + cos dPitch * z))
+    (cos dPitch * y - sin dPitch * z)
+    (- sin dYaw * x + cos dYaw * (sin dPitch * y + cos dPitch * z))
 
 

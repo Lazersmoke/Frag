@@ -19,8 +19,8 @@ keyboard conn win key _ keyState _ = do
   when (key == GLFW.Key'Escape && keyState == GLFW.KeyState'Pressed) (GLFW.setWindowShouldClose win True)
   when (key == GLFW.Key'G && keyState == GLFW.KeyState'Pressed) (WS.sendTextData conn . T.pack $ "Ready")
 
-render :: [LobbyEntry] -> GLFW.Window -> IO ()
-render entries win = do
+render :: [LobbyEntry] -> Renderer
+render entries _ win = do
   (w,h) <- GLFW.getFramebufferSize win
   let entryHeight = fromIntegral w / fromIntegral (length entries)
   GL.depthFunc $= Just GL.Less

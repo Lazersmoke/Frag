@@ -3,6 +3,7 @@ module Purity.Client.Network where
 
 import Purity.Client.Data
 import Purity.Client.Lobby
+import Purity.Client.Demo
 import Purity.Client.Game
 import Purity.Client.Util
 import Purity.Client.Parse
@@ -12,6 +13,11 @@ import Control.Monad
 import Data.IORef
 import qualified Network.WebSockets as WS
 import qualified Data.Text as T
+
+startDemo :: MVar Mode -> IO ()
+startDemo mvarMode = do
+  setMode mvarMode demoMode 
+  startDemo mvarMode
 
 connectToServer :: String -> MVar Mode -> IO ()
 connectToServer url mvarMode = do
@@ -26,7 +32,7 @@ wsClient cursorRef mvarMode conn = forever $ do
   --plog Log $ "[SERVER] " ++ msg
   case parseServerMessage msg of
     Left err -> plog Error $ "Oh No! Parse error on server message \"" ++ msg ++ "\"!!!\n" ++ show err
-    Right serverMsg -> do
+    Right serverMsg ->
      --plog Log $ "Received a " ++ show serverMsg ++ " from the server"
      case serverMsg of
        NameQuery -> sendName conn
