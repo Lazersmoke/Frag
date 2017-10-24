@@ -1,0 +1,522 @@
+Version 1.5.1 x86_64
+Compiled with:
+- Cabal-1.24.2.0
+- Glob-0.8.0
+- HUnit-1.5.0.0
+- MonadRandom-0.5.1
+- QuickCheck-2.9.2
+- SHA-1.6.4.2
+- StateVar-1.1.0.4
+- aeson-1.1.2.0
+- aeson-compat-0.3.6
+- annotated-wl-pprint-0.7.0
+- ansi-terminal-0.6.3.1
+- ansi-wl-pprint-0.6.7.3
+- array-0.5.1.1
+- asn1-encoding-0.9.5
+- asn1-parse-0.9.4
+- asn1-types-0.3.2
+- async-2.1.1.1
+- attoparsec-0.13.1.0
+- attoparsec-iso8601-1.0.0.0
+- auto-update-0.1.4
+- base-4.9.1.0
+- base-compat-0.9.3
+- base-orphans-0.6
+- base16-bytestring-0.1.1.6
+- base64-bytestring-1.0.0.1
+- bifunctors-5.4.2
+- binary-0.8.3.0
+- binary-tagged-0.1.4.2
+- bitarray-0.0.1.1
+- blaze-builder-0.4.0.2
+- blaze-html-0.9.0.1
+- blaze-markup-0.8.0.0
+- byteable-0.1.1
+- bytestring-0.10.8.1
+- call-stack-0.1.0
+- case-insensitive-1.2.0.10
+- cereal-0.5.4.0
+- clock-0.7.2
+- comonad-5.0.2
+- conduit-1.2.11
+- conduit-extra-1.1.16
+- connection-0.2.8
+- constraints-0.9.1
+- containers-0.5.7.1
+- contravariant-1.4
+- cookie-0.4.2.1
+- cryptohash-0.11.9
+- cryptohash-sha256-0.11.100.1
+- cryptonite-0.23
+- cryptonite-conduit-0.2.0
+- data-default-class-0.1.2.0
+- deepseq-1.4.2.0
+- digest-0.0.1.2
+- directory-1.3.0.0
+- distributive-0.5.3
+- dlist-0.8.0.3
+- easy-file-0.2.1
+- echo-0.1.3
+- ed25519-0.0.5.0
+- either-4.4.1.1
+- errors-2.2.1
+- exceptions-0.8.3
+- extra-1.5.3
+- fail-4.9.0.0
+- fast-logger-2.4.10
+- file-embed-0.0.10
+- filelock-0.1.1.2
+- filepath-1.4.1.1
+- foundation-0.0.13
+- free-4.12.4
+- fsnotify-0.2.1.1
+- generic-deriving-1.11.2
+- generics-sop-0.3.1.0
+- ghc-boot-th-8.0.2
+- ghc-prim-0.5.0.0
+- gitrev-1.3.1
+- hackage-security-0.5.2.2
+- hashable-1.2.6.1
+- hastache-0.6.1
+- hinotify-0.3.9
+- hourglass-0.2.10
+- hpack-0.18.1
+- hpc-0.6.0.3
+- hspec-2.4.4
+- hspec-core-2.4.4
+- hspec-discover-2.4.4
+- hspec-expectations-0.8.2
+- hspec-smallcheck-0.4.2
+- http-api-data-0.3.7.1
+- http-client-0.5.7.0
+- http-client-tls-0.3.5.1
+- http-conduit-2.2.3.2
+- http-types-0.9.1
+- ieee754-0.8.0
+- integer-gmp-1.0.0.1
+- integer-logarithms-1.0.2
+- lifted-async-0.9.3
+- lifted-base-0.2.3.11
+- logict-0.6.0.2
+- memory-0.14.6
+- microlens-0.4.8.1
+- microlens-mtl-0.1.11.0
+- microlens-th-0.4.1.1
+- mime-types-0.1.0.7
+- mintty-0.1.1
+- mmorph-1.0.9
+- monad-control-1.0.2.2
+- monad-logger-0.3.25
+- monad-loops-0.4.3
+- monad-unlift-0.2.0
+- mono-traversable-1.0.2.1
+- mtl-2.2.1
+- nats-1.1.1
+- network-2.6.3.2
+- network-uri-2.6.1.0
+- old-locale-1.0.0.7
+- old-time-1.1.0.3
+- open-browser-0.2.1.0
+- optparse-applicative-0.13.2.0
+- optparse-simple-0.0.3
+- parsec-3.1.11
+- path-0.5.13
+- path-io-1.2.2
+- path-pieces-0.2.1
+- pem-0.2.2
+- persistent-2.7.0
+- persistent-sqlite-2.6.2
+- persistent-template-2.5.2
+- pid1-0.1.2.0
+- prelude-extras-0.4.0.3
+- pretty-1.1.3.3
+- primitive-0.6.2.0
+- process-1.4.3.0
+- profunctors-5.2.1
+- project-template-0.2.0
+- quickcheck-io-0.2.0
+- random-1.1
+- regex-applicative-0.3.3
+- regex-applicative-text-0.1.0.1
+- resource-pool-0.2.3.2
+- resourcet-1.1.9
+- retry-0.7.4.2
+- rts-1.0
+- safe-0.3.15
+- safe-exceptions-0.1.6.0
+- scientific-0.3.5.2
+- semigroupoids-5.2.1
+- semigroups-0.18.3
+- setenv-0.1.1.3
+- silently-1.2.5
+- smallcheck-1.1.2
+- socks-0.5.5
+- split-0.2.3.2
+- stm-2.4.4.1
+- stm-chans-3.0.0.4
+- store-0.4.3.2
+- store-core-0.4.1
+- streaming-commons-0.1.17
+- syb-0.7
+- tagged-0.8.5
+- tar-0.5.0.3
+- template-haskell-2.11.1.0
+- temporary-1.2.1.1
+- text-1.2.2.2
+- text-binary-0.2.1.1
+- text-metrics-0.3.0
+- tf-random-0.5
+- th-expand-syns-0.4.3.0
+- th-lift-0.7.7
+- th-lift-instances-0.1.11
+- th-orphans-0.13.4
+- th-reify-many-0.1.8
+- th-utilities-0.2.0.1
+- time-1.6.0.1
+- time-locale-compat-0.1.1.3
+- tls-1.3.11
+- transformers-0.5.2.0
+- transformers-base-0.4.4
+- transformers-compat-0.5.1.4
+- unexceptionalio-0.3.0
+- unicode-transforms-0.3.3
+- unix-2.7.2.1
+- unix-compat-0.4.3.1
+- unix-time-0.3.7
+- unordered-containers-0.2.8.0
+- uri-bytestring-0.2.3.3
+- uuid-types-1.0.3
+- vector-0.12.0.1
+- vector-algorithms-0.7.0.1
+- vector-binary-instances-0.2.3.5
+- void-0.7.2
+- x509-1.7.2
+- x509-store-1.6.5
+- x509-system-1.6.6
+- x509-validation-1.6.9
+- yaml-0.8.23.3
+- zip-archive-0.3.1.1
+- zlib-0.6.1.2
+
+2017-10-19 16:44:21.497500: [debug] Checking for project config at: /home/lazersmoke/git/Purity/stack.yaml
+@(Stack/Config.hs:974:9)
+2017-10-19 16:44:21.497769: [debug] Loading project config file stack.yaml
+@(Stack/Config.hs:999:13)
+2017-10-19 16:44:21.505579: [debug] Trying to decode /home/lazersmoke/.stack/build-plan-cache/x86_64-linux/nightly-2017-10-18.cache
+@(Data/Store/VersionTagged.hs:72:5)
+2017-10-19 16:44:21.522187: [debug] Success decoding /home/lazersmoke/.stack/build-plan-cache/x86_64-linux/nightly-2017-10-18.cache
+@(Data/Store/VersionTagged.hs:76:13)
+2017-10-19 16:44:21.522404: [debug] PATH is: Just "/home/lazersmoke/bin:/home/lazersmoke/.local/bin:/usr/local/bin:/home/lazersmoke/bin:/run/wrappers/bin:/etc/per-user-pkgs/lazersmoke/bin:/home/lazersmoke/.nix-profile/bin:/nix/var/nix/profiles/default/bin:/run/current-system/sw/bin"
+@(Stack/Nix.hs:126:6)
+2017-10-19 16:44:21.522448: [debug] Using a nix-shell environment with nix packages: xorg.libXi, xorg.libXext, xorg.libXfixes, xorg.fixesproto, xorg.xextproto, xorg.libXinerama, xorg.libXcursor, xorg.xinput, xorg.inputproto, xorg.kbproto, xorg.libXxf86vm, xorg.xf86vidmodeproto, xorg.libXrender, xorg.renderproto, xorg.libXrandr, xorg.xrandr, xorg.randrproto, xorg.libX11, xorg.xproto, stdenv, mesa, gnumake, zlib.out, zlib.dev, haskell.compiler.ghc821, git
+@(Stack/Nix.hs:127:6)
+2017-10-19 16:44:21.522959: [debug] Run process: /run/current-system/sw/bin/nix-shell --pure -E "with (import <nixpkgs> {}); let inputs = [xorg.libXi xorg.libXext xorg.libXfixes xorg.fixesproto xorg.xextproto xorg.libXinerama xorg.libXcursor xorg.xinput xorg.inputproto xorg.kbproto xorg.libXxf86vm xorg.xf86vidmodeproto xorg.libXrender xorg.renderproto xorg.libXrandr xorg.xrandr xorg.randrproto xorg.libX11 xorg.xproto stdenv mesa gnumake zlib.out zlib.dev haskell.compiler.ghc821 git]; libPath = lib.makeLibraryPath inputs; stackExtraArgs = lib.concatMap (pkg: [ ''--extra-lib-dirs=${lib.getLib pkg}/lib''   ''--extra-include-dirs=${lib.getDev pkg}/include'' ]) inputs; in runCommand ''myEnv'' { buildInputs = lib.optional stdenv.isLinux glibcLocales ++ inputs; STACK_PLATFORM_VARIANT=''nix''; STACK_IN_NIXSHELL=1; LD_LIBRARY_PATH = libPath;STACK_IN_NIX_EXTRA_ARGS = stackExtraArgs; } \"\"" --run "'/nix/store/59m6x7d89an9c2gyjq8sminhcxfphvzq-stack-1.5.1/bin/stack' $STACK_IN_NIX_EXTRA_ARGS '--internal-re-exec-version=1.5.1' 'build' '-v'"
+@(Stack/Exec.hs:65:5)
+Version 1.5.1 x86_64
+Compiled with:
+- Cabal-1.24.2.0
+- Glob-0.8.0
+- HUnit-1.5.0.0
+- MonadRandom-0.5.1
+- QuickCheck-2.9.2
+- SHA-1.6.4.2
+- StateVar-1.1.0.4
+- aeson-1.1.2.0
+- aeson-compat-0.3.6
+- annotated-wl-pprint-0.7.0
+- ansi-terminal-0.6.3.1
+- ansi-wl-pprint-0.6.7.3
+- array-0.5.1.1
+- asn1-encoding-0.9.5
+- asn1-parse-0.9.4
+- asn1-types-0.3.2
+- async-2.1.1.1
+- attoparsec-0.13.1.0
+- attoparsec-iso8601-1.0.0.0
+- auto-update-0.1.4
+- base-4.9.1.0
+- base-compat-0.9.3
+- base-orphans-0.6
+- base16-bytestring-0.1.1.6
+- base64-bytestring-1.0.0.1
+- bifunctors-5.4.2
+- binary-0.8.3.0
+- binary-tagged-0.1.4.2
+- bitarray-0.0.1.1
+- blaze-builder-0.4.0.2
+- blaze-html-0.9.0.1
+- blaze-markup-0.8.0.0
+- byteable-0.1.1
+- bytestring-0.10.8.1
+- call-stack-0.1.0
+- case-insensitive-1.2.0.10
+- cereal-0.5.4.0
+- clock-0.7.2
+- comonad-5.0.2
+- conduit-1.2.11
+- conduit-extra-1.1.16
+- connection-0.2.8
+- constraints-0.9.1
+- containers-0.5.7.1
+- contravariant-1.4
+- cookie-0.4.2.1
+- cryptohash-0.11.9
+- cryptohash-sha256-0.11.100.1
+- cryptonite-0.23
+- cryptonite-conduit-0.2.0
+- data-default-class-0.1.2.0
+- deepseq-1.4.2.0
+- digest-0.0.1.2
+- directory-1.3.0.0
+- distributive-0.5.3
+- dlist-0.8.0.3
+- easy-file-0.2.1
+- echo-0.1.3
+- ed25519-0.0.5.0
+- either-4.4.1.1
+- errors-2.2.1
+- exceptions-0.8.3
+- extra-1.5.3
+- fail-4.9.0.0
+- fast-logger-2.4.10
+- file-embed-0.0.10
+- filelock-0.1.1.2
+- filepath-1.4.1.1
+- foundation-0.0.13
+- free-4.12.4
+- fsnotify-0.2.1.1
+- generic-deriving-1.11.2
+- generics-sop-0.3.1.0
+- ghc-boot-th-8.0.2
+- ghc-prim-0.5.0.0
+- gitrev-1.3.1
+- hackage-security-0.5.2.2
+- hashable-1.2.6.1
+- hastache-0.6.1
+- hinotify-0.3.9
+- hourglass-0.2.10
+- hpack-0.18.1
+- hpc-0.6.0.3
+- hspec-2.4.4
+- hspec-core-2.4.4
+- hspec-discover-2.4.4
+- hspec-expectations-0.8.2
+- hspec-smallcheck-0.4.2
+- http-api-data-0.3.7.1
+- http-client-0.5.7.0
+- http-client-tls-0.3.5.1
+- http-conduit-2.2.3.2
+- http-types-0.9.1
+- ieee754-0.8.0
+- integer-gmp-1.0.0.1
+- integer-logarithms-1.0.2
+- lifted-async-0.9.3
+- lifted-base-0.2.3.11
+- logict-0.6.0.2
+- memory-0.14.6
+- microlens-0.4.8.1
+- microlens-mtl-0.1.11.0
+- microlens-th-0.4.1.1
+- mime-types-0.1.0.7
+- mintty-0.1.1
+- mmorph-1.0.9
+- monad-control-1.0.2.2
+- monad-logger-0.3.25
+- monad-loops-0.4.3
+- monad-unlift-0.2.0
+- mono-traversable-1.0.2.1
+- mtl-2.2.1
+- nats-1.1.1
+- network-2.6.3.2
+- network-uri-2.6.1.0
+- old-locale-1.0.0.7
+- old-time-1.1.0.3
+- open-browser-0.2.1.0
+- optparse-applicative-0.13.2.0
+- optparse-simple-0.0.3
+- parsec-3.1.11
+- path-0.5.13
+- path-io-1.2.2
+- path-pieces-0.2.1
+- pem-0.2.2
+- persistent-2.7.0
+- persistent-sqlite-2.6.2
+- persistent-template-2.5.2
+- pid1-0.1.2.0
+- prelude-extras-0.4.0.3
+- pretty-1.1.3.3
+- primitive-0.6.2.0
+- process-1.4.3.0
+- profunctors-5.2.1
+- project-template-0.2.0
+- quickcheck-io-0.2.0
+- random-1.1
+- regex-applicative-0.3.3
+- regex-applicative-text-0.1.0.1
+- resource-pool-0.2.3.2
+- resourcet-1.1.9
+- retry-0.7.4.2
+- rts-1.0
+- safe-0.3.15
+- safe-exceptions-0.1.6.0
+- scientific-0.3.5.2
+- semigroupoids-5.2.1
+- semigroups-0.18.3
+- setenv-0.1.1.3
+- silently-1.2.5
+- smallcheck-1.1.2
+- socks-0.5.5
+- split-0.2.3.2
+- stm-2.4.4.1
+- stm-chans-3.0.0.4
+- store-0.4.3.2
+- store-core-0.4.1
+- streaming-commons-0.1.17
+- syb-0.7
+- tagged-0.8.5
+- tar-0.5.0.3
+- template-haskell-2.11.1.0
+- temporary-1.2.1.1
+- text-1.2.2.2
+- text-binary-0.2.1.1
+- text-metrics-0.3.0
+- tf-random-0.5
+- th-expand-syns-0.4.3.0
+- th-lift-0.7.7
+- th-lift-instances-0.1.11
+- th-orphans-0.13.4
+- th-reify-many-0.1.8
+- th-utilities-0.2.0.1
+- time-1.6.0.1
+- time-locale-compat-0.1.1.3
+- tls-1.3.11
+- transformers-0.5.2.0
+- transformers-base-0.4.4
+- transformers-compat-0.5.1.4
+- unexceptionalio-0.3.0
+- unicode-transforms-0.3.3
+- unix-2.7.2.1
+- unix-compat-0.4.3.1
+- unix-time-0.3.7
+- unordered-containers-0.2.8.0
+- uri-bytestring-0.2.3.3
+- uuid-types-1.0.3
+- vector-0.12.0.1
+- vector-algorithms-0.7.0.1
+- vector-binary-instances-0.2.3.5
+- void-0.7.2
+- x509-1.7.2
+- x509-store-1.6.5
+- x509-system-1.6.6
+- x509-validation-1.6.9
+- yaml-0.8.23.3
+- zip-archive-0.3.1.1
+- zlib-0.6.1.2
+
+2017-10-19 16:44:22.545918: [debug] Checking for project config at: /home/lazersmoke/git/Purity/stack.yaml
+@(Stack/Config.hs:974:9)
+2017-10-19 16:44:22.546240: [debug] Loading project config file stack.yaml
+@(Stack/Config.hs:999:13)
+2017-10-19 16:44:22.548998: [debug] Trying to decode /home/lazersmoke/.stack/build-plan-cache/x86_64-linux-nix/nightly-2017-10-18.cache
+@(Data/Store/VersionTagged.hs:72:5)
+2017-10-19 16:44:22.562923: [debug] Success decoding /home/lazersmoke/.stack/build-plan-cache/x86_64-linux-nix/nightly-2017-10-18.cache
+@(Data/Store/VersionTagged.hs:76:13)
+2017-10-19 16:44:22.563483: [debug] Getting system compiler version
+@(Stack/Setup.hs:379:17)
+2017-10-19 16:44:22.563802: [debug] Run process: /nix/store/1xj1jg0j1kid31l087bgd180n840pan4-ghc-8.2.1/bin/ghc --info
+@(System/Process/Read.hs:306:3)
+2017-10-19 16:44:22.651931: [debug] Process finished in [92m88ms[0m: /nix/store/1xj1jg0j1kid31l087bgd180n840pan4-ghc-8.2.1/bin/ghc --info
+@(System/Process/Read.hs:306:3)
+2017-10-19 16:44:22.652909: [debug] Asking GHC for its version
+@(Stack/Setup/Installed.hs:103:13)
+2017-10-19 16:44:22.653189: [debug] Getting Cabal package version
+@(Stack/GhcPkg.hs:189:5)
+2017-10-19 16:44:22.653293: [debug] Getting global package database location
+@(Stack/GhcPkg.hs:55:5)
+2017-10-19 16:44:22.653335: [debug] Run process: /nix/store/1xj1jg0j1kid31l087bgd180n840pan4-ghc-8.2.1/bin/ghc --numeric-version
+@(System/Process/Read.hs:306:3)
+2017-10-19 16:44:22.654167: [debug] Run process: /nix/store/1xj1jg0j1kid31l087bgd180n840pan4-ghc-8.2.1/bin/ghc-pkg --no-user-package-db field --simple-output Cabal version
+@(System/Process/Read.hs:306:3)
+2017-10-19 16:44:22.657156: [debug] Run process: /nix/store/1xj1jg0j1kid31l087bgd180n840pan4-ghc-8.2.1/bin/ghc-pkg --no-user-package-db list --global
+@(System/Process/Read.hs:306:3)
+2017-10-19 16:44:22.747296: [debug] Process finished in [92m93ms[0m: /nix/store/1xj1jg0j1kid31l087bgd180n840pan4-ghc-8.2.1/bin/ghc-pkg --no-user-package-db field --simple-output Cabal version
+@(System/Process/Read.hs:306:3)
+2017-10-19 16:44:22.749242: [debug] Process finished in [92m85ms[0m: /nix/store/1xj1jg0j1kid31l087bgd180n840pan4-ghc-8.2.1/bin/ghc-pkg --no-user-package-db list --global
+@(System/Process/Read.hs:306:3)
+2017-10-19 16:44:22.780384: [debug] Process finished in [92m126ms[0m: /nix/store/1xj1jg0j1kid31l087bgd180n840pan4-ghc-8.2.1/bin/ghc --numeric-version
+@(System/Process/Read.hs:306:3)
+2017-10-19 16:44:22.780657: [debug] Resolving package entries
+@(Stack/Setup.hs:260:5)
+2017-10-19 16:44:22.781891: [debug] Starting to execute command inside EnvConfig
+@(Stack/Runners.hs:175:18)
+2017-10-19 16:44:22.781963: [debug] Parsing the cabal files of the local packages
+@(Stack/Build/Source.hs:328:5)
+2017-10-19 16:44:22.782701: [debug] Parsing the targets
+@(Stack/Build/Source.hs:265:5)
+2017-10-19 16:44:22.782926: [debug] Start: getPackageFiles /home/lazersmoke/git/Purity/Purity.cabal
+@(Stack/Package.hs:259:21)
+2017-10-19 16:44:22.783747: [debug] Finished in 0ms: getPackageFiles /home/lazersmoke/git/Purity/Purity.cabal
+@(Stack/Package.hs:259:21)
+2017-10-19 16:44:22.783933: [debug] Finding out which packages are already installed
+@(Stack/Build/Installed.hs:69:5)
+2017-10-19 16:44:22.784182: [debug] Run process: /nix/store/1xj1jg0j1kid31l087bgd180n840pan4-ghc-8.2.1/bin/ghc-pkg --global --no-user-package-db dump --expand-pkgroot
+@(System/Process/Read.hs:306:3)
+2017-10-19 16:44:22.824772: [debug] Process finished in [92m40ms[0m: /nix/store/1xj1jg0j1kid31l087bgd180n840pan4-ghc-8.2.1/bin/ghc-pkg --global --no-user-package-db dump --expand-pkgroot
+@(System/Process/Read.hs:306:3)
+2017-10-19 16:44:22.841017: [debug] Run process: /nix/store/1xj1jg0j1kid31l087bgd180n840pan4-ghc-8.2.1/bin/ghc-pkg --user --no-user-package-db --package-db /home/lazersmoke/.stack/snapshots/x86_64-linux-nix/nightly-2017-10-18/8.2.1/pkgdb dump --expand-pkgroot
+@(System/Process/Read.hs:306:3)
+2017-10-19 16:44:22.879518: [debug] Process finished in [92m38ms[0m: /nix/store/1xj1jg0j1kid31l087bgd180n840pan4-ghc-8.2.1/bin/ghc-pkg --user --no-user-package-db --package-db /home/lazersmoke/.stack/snapshots/x86_64-linux-nix/nightly-2017-10-18/8.2.1/pkgdb dump --expand-pkgroot
+@(System/Process/Read.hs:306:3)
+2017-10-19 16:44:22.879819: [debug] Run process: /nix/store/1xj1jg0j1kid31l087bgd180n840pan4-ghc-8.2.1/bin/ghc-pkg --user --no-user-package-db --package-db /home/lazersmoke/git/Purity/.stack-work/install/x86_64-linux-nix/nightly-2017-10-18/8.2.1/pkgdb dump --expand-pkgroot
+@(System/Process/Read.hs:306:3)
+2017-10-19 16:44:22.910639: [debug] Process finished in [92m30ms[0m: /nix/store/1xj1jg0j1kid31l087bgd180n840pan4-ghc-8.2.1/bin/ghc-pkg --user --no-user-package-db --package-db /home/lazersmoke/git/Purity/.stack-work/install/x86_64-linux-nix/nightly-2017-10-18/8.2.1/pkgdb dump --expand-pkgroot
+@(System/Process/Read.hs:306:3)
+2017-10-19 16:44:22.911328: [debug] Constructing the build plan
+@(Stack/Build/ConstructPlan.hs:188:5)
+2017-10-19 16:44:22.911542: [debug] Trying to decode /home/lazersmoke/.stack/indices/Hackage/01-index.cache
+@(Data/Store/VersionTagged.hs:72:5)
+2017-10-19 16:44:23.051593: [debug] Success decoding /home/lazersmoke/.stack/indices/Hackage/01-index.cache
+@(Data/Store/VersionTagged.hs:76:13)
+2017-10-19 16:44:23.119568: [debug] Checking if we are going to build multiple executables with the same name
+@(Stack/Build.hs:210:5)
+2017-10-19 16:44:23.119729: [debug] Executing the build plan
+@(Stack/Build/Execute.hs:478:5)
+2017-10-19 16:44:23.120232: [debug] Getting global package database location
+@(Stack/GhcPkg.hs:55:5)
+2017-10-19 16:44:23.120286: [debug] Run process: /nix/store/1xj1jg0j1kid31l087bgd180n840pan4-ghc-8.2.1/bin/ghc-pkg --no-user-package-db list --global
+@(System/Process/Read.hs:306:3)
+2017-10-19 16:44:23.148984: [debug] Process finished in [92m28ms[0m: /nix/store/1xj1jg0j1kid31l087bgd180n840pan4-ghc-8.2.1/bin/ghc-pkg --no-user-package-db list --global
+@(System/Process/Read.hs:306:3)
+2017-10-19 16:44:23.149974: [debug] Encoding /home/lazersmoke/git/Purity/.stack-work/dist/x86_64-linux-nix/Cabal-2.0.0.2/stack-build-cache
+@(Data/Store/VersionTagged.hs:54:5)
+2017-10-19 16:44:23.150323: [debug] Finished writing /home/lazersmoke/git/Purity/.stack-work/dist/x86_64-linux-nix/Cabal-2.0.0.2/stack-build-cache
+@(Data/Store/VersionTagged.hs:59:5)
+2017-10-19 16:44:23.150566: [info] Purity-0.1.0.0: build (lib + exe)
+@(Stack/Build/Execute.hs:830:23)
+2017-10-19 16:44:23.150706: [debug] Run process: /home/lazersmoke/.stack/setup-exe-cache/x86_64-linux-nix/Cabal-simple_mPHDZzAJ_2.0.0.2_ghc-8.2.1 --builddir=.stack-work/dist/x86_64-linux-nix/Cabal-2.0.0.2 build lib:Purity exe:purity-exe --ghc-options " -ddump-hi -ddump-to-file"
+@(System/Process/Read.hs:306:3)
+2017-10-19 16:44:23.192900: [info] Preprocessing library for Purity-0.1.0.0..
+@(Stack/Build/Execute.hs:1096:67)
+2017-10-19 16:44:23.193065: [info] Building library for Purity-0.1.0.0..
+@(Stack/Build/Execute.hs:1096:67)
+2017-10-19 16:44:23.281101: [warn] <command line>: cannot satisfy -package-id OpenGLRaw-3.2.5.0-IBmrhP8GqxH4EltNY44FIT: 
+@(Stack/Build/Execute.hs:1096:67)
+2017-10-19 16:44:23.281298: [warn]     OpenGLRaw-3.2.5.0-IBmrhP8GqxH4EltNY44FIT is unusable due to shadowed dependencies:
+@(Stack/Build/Execute.hs:1096:67)
+2017-10-19 16:44:23.281376: [warn]       bytestring-0.10.8.2 containers-0.5.10.2 text-1.2.2.2-Ja5vhWvrB3PHMSPwq0buEf
+@(Stack/Build/Execute.hs:1096:67)
+2017-10-19 16:44:23.281448: [warn]     (use -v for more information)
+@(Stack/Build/Execute.hs:1096:67)
+2017-10-19 16:44:23.293979: [debug] Start: getPackageFiles /home/lazersmoke/git/Purity/Purity.cabal
+@(Stack/Package.hs:259:21)
+2017-10-19 16:44:23.294982: [debug] Finished in 0ms: getPackageFiles /home/lazersmoke/git/Purity/Purity.cabal
+@(Stack/Package.hs:259:21)
+2017-10-19 16:44:23.295239: [debug] Encoding /home/lazersmoke/git/Purity/.stack-work/dist/x86_64-linux-nix/Cabal-2.0.0.2/stack-build-cache
+@(Data/Store/VersionTagged.hs:54:5)
+2017-10-19 16:44:23.295518: [debug] Finished writing /home/lazersmoke/git/Purity/.stack-work/dist/x86_64-linux-nix/Cabal-2.0.0.2/stack-build-cache
+@(Data/Store/VersionTagged.hs:59:5)
+
+--  While building package Purity-0.1.0.0 using:
+      /home/lazersmoke/.stack/setup-exe-cache/x86_64-linux-nix/Cabal-simple_mPHDZzAJ_2.0.0.2_ghc-8.2.1 --builddir=.stack-work/dist/x86_64-linux-nix/Cabal-2.0.0.2 build lib:Purity exe:purity-exe --ghc-options " -ddump-hi -ddump-to-file"
+    Process exited with code: ExitFailure 1

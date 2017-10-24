@@ -1,0 +1,14 @@
+#version 330 core
+
+// Output a color for each fragment
+out vec3 color;
+
+void main(){
+  // Always red fronts, green backs
+  if(gl_FrontFacing){
+    color = vec3(1,0,0);
+  }
+  else{
+    color = vec3(0,1,0);
+  }
+}
