@@ -1,12 +1,31 @@
 #version 330 core
 // Vertex position
-layout(location = 0) in vec3 vertexPosition_modelspace;
+layout(location = 0) in vec3 vertexPosition;
+layout(location = 1) in vec3 vertexUV;
+layout(location = 2) in vec3 vertexNormal;
 
 // The MVP matrix
 uniform mat4 Model;
 uniform mat4 View;
 uniform mat4 Projection;
+uniform vec3 LightPosition;
+
+out vec3 normal;
+out vec3 toLight;
+out vec3 positionWorld;
+
 void main(){
   // Upgrade the vertex position to a mat4 as a static position, and multiply with MVP
-  gl_Position = Projection * View * Model * vec4(vertexPosition_modelspace,1);
+  gl_Position = Projection * View * Model * vec4(vertexPosition,1);
+
+  // Vertex in camera space
+  vec3 vertexCamera = (View * Model * vec4(vertexPosition,1)).xyz;
+
+  // Vertex to light
+  vec3 lightCamera = (View * vec4(LightPosition,1)).xyz;
+  toLight = lightCamera - vertexCamera;
+
+  // To cameraspace
+  normal = (View * Model * vec4(vertexNormal,0)).xyz; // no scaling allowed in model
+  positionWorld = (Model * vec4(vertexPosition,1)).xyz;
 }
