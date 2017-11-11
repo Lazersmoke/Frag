@@ -7,8 +7,10 @@ in vec3 normal;
 in vec3 toLight;
 in vec4 gl_FragCoord;
 in vec3 positionWorld;
+in vec2 UV;
 
 uniform vec3 LightPosition;
+uniform sampler2D TextureSampler;
 
 void main(){
   // Bright white light
@@ -16,7 +18,7 @@ void main(){
   float LightPower = 50.0f;
 
   // Green surface
-  vec3 MaterialDiffuseColor = vec3(1,0,0);
+  vec3 MaterialDiffuseColor = texture(TextureSampler, UV).rgb;
   vec3 MaterialAmbientColor = vec3(0.1,0.1,0.1) * MaterialDiffuseColor;
   vec3 MaterialSpecularColor = vec3(0.3,0.3,0.3);
 

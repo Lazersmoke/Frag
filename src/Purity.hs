@@ -7,6 +7,7 @@
 module Purity where
 
 import qualified Data.Vector as Vector
+import qualified Data.Vector.Storable as Storable
 import Graphics.GL.Core45
 import qualified Graphics.UI.GLFW as GLFW
 import Foreign
@@ -21,6 +22,7 @@ import System.IO.Unsafe (unsafePerformIO)
 import qualified Linear as Linear
 import Control.Lens
 import System.Exit
+import qualified Codec.Picture as Juicy
 
 import Purity.Physics
 
@@ -34,6 +36,8 @@ data OpenGLInfo = OpenGLInfo
   ,viewMatrixId :: GLint
   ,projectionMatrixId :: GLint
   ,lightLocationId :: GLint
+  ,textureId :: GLuint
+  ,textureSamplerId :: GLint
   }
 
 -- | A prepared vertex attribute
@@ -51,7 +55,7 @@ data VertexAttribute = VertexAttribute
 -- | A type encapsulating all state in purity
 data PurityState = PurityState
   {_playerBody :: FreeBody Float
-  ,_playerForward :: Linear.V3 Float
+  ,_playerForward :: Linear.Quaternion Float -- Rotate 0 0 -1 to the player's view
   ,_frameTime :: Double
   ,_lightPosition :: Linear.V3 Float
   }
@@ -93,11 +97,10 @@ purityMain = do
       GLFW.windowHint $ GLFW.WindowHint'OpenGLForwardCompat True
       GLFW.windowHint $ GLFW.WindowHint'OpenGLProfile GLFW.OpenGLProfile'Core
       logStr "Creating fullscreen 1024x768 window... "
-      Just mon <- GLFW.getPrimaryMonitor
-      Just vidMode <- GLFW.getVideoMode mon
-      let windowX = GLFW.videoModeWidth vidMode
-      let windowY = GLFW.videoModeHeight vidMode
-      GLFW.createWindow windowX windowY "Purity" (Just mon) Nothing >>= \case
+      let
+        windowX = 1024
+        windowY = 768
+      GLFW.createWindow windowX windowY "Purity" Nothing Nothing >>= \case
         Nothing -> do
           logStrLn $ red "Failure!"
           GLFW.terminate
@@ -117,7 +120,9 @@ purityMain = do
           openGLInfo <- initGL
           logStrLn "Entering render loop..."
           Just ft0 <- GLFW.getTime
-          renderLoop PurityState{_lightPosition = Linear.V3 4 3 3,_playerBody = bodyAtRest (Linear.V3 5 5 5), _playerForward = Linear.normalize $ Linear.V3 (-1) (-1) (-1), _frameTime = ft0} openGLInfo theWindow
+          let
+            bodyPosition = Linear.V3 0 0 0
+          renderLoop PurityState{_lightPosition = Linear.V3 4 3 3,_playerBody = bodyAtRest bodyPosition, _playerForward = Linear.normalize $ Linear.axisAngle (negate bodyPosition) 0, _frameTime = ft0} openGLInfo theWindow
     False -> logStrLn "Failure!"
 
 -- | A thread that logs things from the global logger forever
@@ -133,7 +138,7 @@ renderLoop !state openGLInfo theWindow = do
       (Linear.V4 0 0.1 0 0)
       (Linear.V4 0 0 0.1 0)
       (Linear.V4 0 0 0 1)
-    vMat = lookIn (state^.playerBody^.freeBodyPosition) (state^.playerForward)
+    vMat = Linear.inv44 $ lookIn (state^.playerBody^.freeBodyPosition) (state^.playerForward)
     pMat = Linear.perspective (45 * pi/180) (4/3) 0.1 100
   -- Render this frame
   logStrLn "Drawing..."
@@ -151,20 +156,29 @@ renderLoop !state openGLInfo theWindow = do
   (wx,wy) <- GLFW.getWindowSize theWindow
   GLFW.setCursorPos theWindow (fromIntegral wx/2) (fromIntegral wy/2)
   let 
-    right = Linear.normalize $ Linear.cross (state^.playerForward) (Linear.V3 0 1 0)
-    up = Linear.normalize $ Linear.cross right (state^.playerForward)
+    forward = Linear.rotate (state^.playerForward) $ Linear.V3 0 0 (-1)
+    right = Linear.normalize $ Linear.cross forward (Linear.rotate (state^.playerForward) $ Linear.V3 0 1 0)
+    up = Linear.normalize $ Linear.cross right forward
     (dx,dy) = ((fromIntegral wx/2)-cx,(fromIntegral wy/2)-cy)
     mouseSpeed = dt * 0.01 -- radians/pixel
     (tx,ty) = (realToFrac $ dx * mouseSpeed,realToFrac $ dy * mouseSpeed) :: (Float,Float)
-    yaw = Linear.axisAngle (Linear.V3 0 1 0) tx
-    pitch = Linear.axisAngle right ty
+    yaw = Linear.axisAngle {-(Linear.V3 0 1 0)-} up tx
+    -- Clamp so they can't go upside down
+    currty = acos $ Linear.dot (Linear.V3 0 (-1) 0) forward
+    ty' = max (min ty (pi - currty)) (-currty)
+    pitch = Linear.axisAngle right ty'
 
   logStrLn $ "Read cursor at " ++ show (cx,cy) ++ " and noted the change was " ++ show (dx,dy) ++ " off from " ++ show (fromIntegral wx/2 :: Float,fromIntegral wy/2 :: Float) ++ " so used angles " ++ show (tx,ty)
+  logStrLn $ "currty:\n" ++ show currty
+  logStrLn $ "forward:\n" ++ show forward
+  logStrLn $ "playerForward:\n" ++ show (state^.playerForward)
+  logStrLn $ "ty:\n" ++ show ty
+  logStrLn $ "ty':\n" ++ show ty'
   logStrLn $ "Yaw:\n" ++ show yaw
   logStrLn $ "Pitch:\n" ++ show pitch
 
   -- Move player
-  moveVec <- sum . zipWith (\v b -> if b then v else Linear.V3 0 0 0) [state^.playerForward,-right,-(state^.playerForward),right,up,-up] . fmap (==GLFW.KeyState'Pressed) <$> mapM (GLFW.getKey theWindow) [GLFW.Key'W,GLFW.Key'A,GLFW.Key'S,GLFW.Key'D,GLFW.Key'Q,GLFW.Key'Z]
+  moveVec <- sum . zipWith (\v b -> if b then v else Linear.V3 0 0 0) [forward,-right,-forward,right,up,-up] . fmap (==GLFW.KeyState'Pressed) <$> mapM (GLFW.getKey theWindow) [GLFW.Key'W,GLFW.Key'A,GLFW.Key'S,GLFW.Key'D,GLFW.Key'Q,GLFW.Key'Z]
 
   -- Get light key
   lPressed <- (==GLFW.KeyState'Pressed) <$> GLFW.getKey theWindow GLFW.Key'L
@@ -173,13 +187,15 @@ renderLoop !state openGLInfo theWindow = do
     moveSpeed = realToFrac dt * 0.9
     updateLight = if lPressed then lightPosition .~ (state^.playerBody^.freeBodyPosition) else id
     updatePosition = playerBody.freeBodyVelocity +~ moveSpeed Linear.*^ moveVec
-    updateForward = playerForward %~ (\o -> Linear.normalize . Linear.rotate yaw . Linear.rotate pitch $ o)
+    updateForward = playerForward %~ rotateView
+    rotateView q = Linear.normalize $ pitch * yaw * q
     mu = 0.8
     friction = mu * negate (state^.playerBody.freeBodyVelocity)
-    updatePhysics = playerBody %~ simulateForce (realToFrac dt) ({-gravity +-} friction) groundSurface
+    updatePhysics = playerBody %~ simulateFreeForce (realToFrac dt) ({-gravity +-} friction) --groundSurface
     state' = updateLight . updatePosition . updateForward . (frameTime .~ ft) . updatePhysics $ state
 
   logStrLn $ "Player body: " ++ show (state^.playerBody)
+  logStrLn $ "Player forward: " ++ show (state^.playerForward)
 
   GLFW.windowShouldClose theWindow >>= \case
     True -> do
@@ -189,7 +205,10 @@ renderLoop !state openGLInfo theWindow = do
       GLFW.KeyState'Pressed -> do
         logStrLn "Escape key was pressed, closing window"
         GLFW.destroyWindow theWindow
-      _ -> Concurrent.threadDelay 1000 *> renderLoop state' openGLInfo theWindow
+      _ -> Concurrent.threadDelay 1000 *> if not hardBrake then renderLoop state' openGLInfo theWindow else logStrLn "Hard braking"
+
+hardBrake :: Bool
+hardBrake = False
 
 bufferGLData :: forall a. (Show a,Storable a) => String -> GLuint -> GLenum -> [a] -> IO ()
 bufferGLData name bufferName bufferType bufferData = do
@@ -221,7 +240,7 @@ initGL = do
     peek namePtr
   logStrLn $ "Vertex Array Object: " ++ show vao
 
-  logStrLn "Generating Vertex Buffer Names Name..."
+  logStrLn "Generating Vertex Buffer Names..."
   [vbo,tbo,nbo,ibo] <- alloca $ \namePtr -> do
     glGenBuffers 4 namePtr
     peekArray 4 namePtr
@@ -229,6 +248,34 @@ initGL = do
   logStrLn $ "Texture coordinate buffer: " ++ show tbo
   logStrLn $ "Normal buffer: " ++ show nbo
   logStrLn $ "Index buffer: " ++ show ibo
+
+  logStrLn "Generating texture name..."
+  textureId' <- alloca $ \namePtr -> glGenTextures 1 namePtr *> peek namePtr
+  logStrLn "Binding texture..."
+  glBindTexture GL_TEXTURE_2D textureId'
+
+  logStrLn "Loading texture juicily from file..."
+  Right dynImage <- Juicy.readPng "test.png"
+  let testTexture = Juicy.convertRGB8 dynImage
+
+  logStrLn "Sending texture to GL..."
+  Storable.unsafeWith (Juicy.imageData testTexture) $ glTexImage2D
+    GL_TEXTURE_2D
+    0 -- Mipmap level (0 full res)
+    (fromIntegral GL_RGB) -- internal format
+    (fromIntegral $ Juicy.imageWidth testTexture)
+    (fromIntegral $ Juicy.imageHeight testTexture)
+    0 -- This is 0 because OpenGL. L
+    GL_RGB -- stored format
+    GL_UNSIGNED_BYTE -- size of color component
+
+  logStrLn "Configuring mipmaps..."
+  logStrLn "  Magnify using linear filtering"
+  glTexParameteri GL_TEXTURE_2D GL_TEXTURE_MAG_FILTER (fromIntegral GL_LINEAR)
+  logStrLn "  Minify using linear blending and filtering"
+  glTexParameteri GL_TEXTURE_2D GL_TEXTURE_MIN_FILTER (fromIntegral GL_LINEAR_MIPMAP_LINEAR)
+  logStrLn "Generating mipmaps..."
+  glGenerateMipmap GL_TEXTURE_2D
 
   logStrLn "Binding VAO..."
   glBindVertexArray vao
@@ -285,7 +332,7 @@ initGL = do
     logStrLn $ "Deleting " ++ name ++ " Shader..."
     glDeleteShader shader
 
-  [modelId,viewId,projectionId,lightId] <- mapM (flip withCString (glGetUniformLocation programId)) ["Model","View","Projection","LightPosition"]
+  [modelId,viewId,projectionId,lightId,textureSamplerId'] <- mapM (flip withCString (glGetUniformLocation programId)) ["Model","View","Projection","LightPosition","TextureSampler"]
 
   pure $ OpenGLInfo 
     {attributeBuffers =
@@ -300,6 +347,8 @@ initGL = do
     ,viewMatrixId = viewId
     ,projectionMatrixId = projectionId
     ,lightLocationId = lightId
+    ,textureId = textureId'
+    ,textureSamplerId = textureSamplerId'
     }
 
 {-
@@ -312,19 +361,10 @@ stdOrtho = Linear.V4
   ]
 -}
 
+-- TODO: natural inverse for faster yay
 -- | Build a view matrix for looking in the direction of a unit vector from a point.
-lookIn :: (Linear.Epsilon a, Floating a) => Linear.V3 a -> Linear.V3 a -> Linear.M44 a
-lookIn eye forward = Linear.V4 
-  (Linear.V4 (xa^.Linear._x)  (xa^.Linear._y)  (xa^.Linear._z)  xd)
-  (Linear.V4 (ya^.Linear._x)  (ya^.Linear._y)  (ya^.Linear._z)  yd)
-  (Linear.V4 (-za^.Linear._x) (-za^.Linear._y) (-za^.Linear._z) zd)
-  (Linear.V4 0         0         0          1)
-  where za = Linear.normalize $ forward
-        xa = Linear.normalize $ Linear.cross za (Linear.V3 0 1 0)
-        ya = Linear.cross xa za
-        xd = -Linear.dot xa eye
-        yd = -Linear.dot ya eye
-        zd = Linear.dot za eye
+lookIn :: Num a => Linear.V3 a -> Linear.Quaternion a -> Linear.M44 a
+lookIn eye forward = Linear.mkTransformation forward eye
 
 -- | Pretty(ish) print a matrix-like structure
 prettyMatrix :: (Foldable f, Foldable g, Show a) => f (g a) -> String
@@ -368,7 +408,14 @@ draw OpenGLInfo{..} (m,v,p,l) = do
     with mat $ glUniformMatrix4fv matId 1 GL_TRUE . (castPtr :: Ptr (Linear.M44 GLfloat) -> Ptr GLfloat)
 
   -- Send light position
+  logStrLn "Sending light position..."
   with l $ glUniform3fv lightLocationId 1 . castPtr
+
+  logStrLn "Binding texture to unit 0..."
+  glActiveTexture GL_TEXTURE0
+  glBindTexture GL_TEXTURE_2D textureId
+  logStrLn "Unleashing texture sampler on unit 0..."
+  glUniform1i textureSamplerId 0
 
   forM_ attributeBuffers $ \(VertexAttribute{..}) -> do
     logStrLn $ "Enabling vertex " ++ attributeName ++ " attribute..."

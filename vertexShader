@@ -1,7 +1,7 @@
 #version 330 core
 // Vertex position
 layout(location = 0) in vec3 vertexPosition;
-layout(location = 1) in vec3 vertexUV;
+layout(location = 1) in vec2 vertexUV;
 layout(location = 2) in vec3 vertexNormal;
 
 // The MVP matrix
@@ -13,6 +13,7 @@ uniform vec3 LightPosition;
 out vec3 normal;
 out vec3 toLight;
 out vec3 positionWorld;
+out vec2 UV;
 
 void main(){
   // Upgrade the vertex position to a mat4 as a static position, and multiply with MVP
@@ -28,4 +29,7 @@ void main(){
   // To cameraspace
   normal = (View * Model * vec4(vertexNormal,0)).xyz; // no scaling allowed in model
   positionWorld = (Model * vec4(vertexPosition,1)).xyz;
+
+  // Passthrough (just lerp)
+  UV = vertexUV;
 }

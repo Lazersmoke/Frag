@@ -65,7 +65,6 @@ extra-package-dbs: []
 # Extra directories used by stack for building
 # extra-include-dirs: [/path/to/dir]
 extra-lib-dirs:
-- /nix/store/qlfsr8xw6xwxysgnmxc4zx37rxn6v78c-gfortran-6.4.0/lib/
 #
 # Allow a newer minor version of GHC than the snapshot specifies
 # compiler-check: newer-minor

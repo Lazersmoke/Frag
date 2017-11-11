@@ -16,7 +16,7 @@ cabal-version:       >=1.10
 library 
   hs-source-dirs:      src
   exposed-modules:     Purity, Purity.Physics
-  build-depends:       base >= 4.7 && < 5, OpenGLRaw, GLFW-b, linear, attoparsec, wavefront, vector, stm, lens, mtl
+  build-depends:       base >= 4.7 && < 5, OpenGLRaw, GLFW-b, linear, attoparsec, wavefront, vector, stm, lens, mtl, JuicyPixels
   default-language:    Haskell2010
 
 executable purity-exe
