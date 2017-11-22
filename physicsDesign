@@ -1,0 +1,7 @@
+In order to render properly, we need the following information from the physics engine:
+
+- The (interpolated) location of every object in the scene at a given frame time
+
+The physics engine must accept as input:
+
+- Forces imposed by objects on each other and by the user
