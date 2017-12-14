@@ -2,16 +2,17 @@
 {-# LANGUAGE MultiWayIf #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE RankNTypes #-}
+{-# LANGUAGE DeriveGeneric #-}
 module Purity.Physics where
 
 import Linear
 import Control.Lens
-import qualified Data.Map.Strict as Map
+--import qualified Data.Map.Strict as Map
 
 -- A point mass in space. How cute.
 data FreeBody q a = FreeBody
-  {_freeBodyPosition :: q a
-  ,_freeBodyVelocity :: q a
+  {_fbPosition :: q a
+  ,_fbVelocity :: q a
   }
 makeLenses ''FreeBody
 
@@ -46,17 +47,47 @@ data Surface q a = Surface
   {_surfaceNormal :: q a -- Unit
   ,_surfaceOffset :: a -- normals to get to surface from origin. surfaceNormal * surfaceOffset is on the surface
   }
-
 makeLenses ''Surface
 
 -- A model of an object's future motion, with enough information to rebuild that future based on new forces.
 -- A motion is affine (has no initial position). Positions are relative to wherever the object starts.
 data Motion t q a = Motion
-  {_motionSpans :: [Span t q a]
-  ,_motionFinalAcceleration :: q a
+  {_motionDuration :: t
+  ,_motionForce :: q a
+  ,_nextMotion :: Maybe (Motion t q a)
   } deriving Show
 makeLenses ''Motion
 
+-- Generalizes for example velocity dependent forces and normal accelerations
+data IntegrationRule t q a = IntegrationRule
+  {_sampleForward :: q a -> t -> FreeBody q a -> FreeBody q a
+  ,_prioriImpact :: q a -> Surface q a -> FreeBody q a -> Maybe t
+  }
+makeLenses ''IntegrationRule
+
+-- Add the first motion into the second motion where the motions start at the same time
+mixInMotion :: (Additive q,Num a,Ord t,Num t) => Motion t q a -> Motion t q a -> Motion t q a
+mixInMotion m' m = if
+  -- If the mix-in goes past the first leg of the target, mix the first leg of the target, then mix with the rest of the target
+  | m'^.motionDuration > m^.motionDuration -> (nextMotion %~ zipMix (Just $ motionDuration -~ m^.motionDuration $ m')) . (motionForce %~ (^+^ m'^.motionForce)) $ m
+  -- If the mix-in just matches the first leg of the target, mix together directly
+  -- (m') [m+m'] | mixInMotion etc{m'} etc{m}
+  | m'^.motionDuration == m^.motionDuration -> (nextMotion %~ zipMix (m'^.nextMotion)) . (motionForce %~ (^+^ m'^.motionForce)) $ m
+  -- If the mix-in stops before the end of the first leg of the target, mix the other way around
+  | m'^.motionDuration < m^.motionDuration ->  mixInMotion m m'
+  | otherwise -> error "Broken Ord instance for time in mixInMotion"
+  where
+    zipMix Nothing (Just a) = Just a
+    zipMix (Just a) Nothing = Just a
+    zipMix Nothing Nothing = Nothing
+    zipMix (Just a) (Just b) = Just $ mixInMotion a b
+
+motionDurationForce :: t -> q a -> Maybe (Motion t q a) -> Motion t q a
+motionDurationForce = Motion
+
+sampleMotion :: t -> Motion t q a -> FreeBody q a
+
+{-
 mixInForce :: (Additive q,Num a,Ord t,Num t) => t -> Span t q a -> Motion t q a -> Motion t q a
 mixInForce t' f' = motionSpans %~ go t' f'
   where
@@ -92,18 +123,18 @@ seekMotionForward cut = motionSpans %~ go cut
 
 --insertInstant :: (Additive q,Num a,Ord t) => t -> Instant q a -> Motion t q a -> Motion t q a
 --insertInstant t i = motionInstants %~ Map.alter (\case {Just a -> Just $ instantDelta %~ (^+^ i^.instantDelta) $ a; Nothing -> Just i}) t
-
-instance (R3 q,Show a) => Show (FreeBody q a) where
+-}
+instance (Additive q,R3 q,Num a,Show a) => Show (FreeBody q a) where
   show fb = "{[o](" 
-    ++ show (fb^.freeBodyPosition^._x) ++ ","
-    ++ show (fb^.freeBodyPosition^._y) ++ ","
-    ++ show (fb^.freeBodyPosition^._z) ++ ")|[->]("
-    ++ show (fb^.freeBodyVelocity^._x) ++ ","
-    ++ show (fb^.freeBodyVelocity^._y) ++ ","
-    ++ show (fb^.freeBodyVelocity^._z) ++ ")}"
+    ++ show (fb^.fbPosition^._x) ++ ","
+    ++ show (fb^.fbPosition^._y) ++ ","
+    ++ show (fb^.fbPosition^._z) ++ ")|[->]("
+    ++ show (fb^.fbVelocity^._x) ++ ","
+    ++ show (fb^.fbVelocity^._y) ++ ","
+    ++ show (fb^.fbVelocity^._z) ++ ")}"
 
 bodyAtRest :: (Additive q,Num a) => q a -> FreeBody q a
-bodyAtRest pos = FreeBody {_freeBodyPosition = pos,_freeBodyVelocity = zero}
+bodyAtRest pos = FreeBody {_fbPosition = pos,_fbVelocity = zero}
 
 surfaceOriginPoint :: (Functor q,Num a) => Surface q a -> q a
 surfaceOriginPoint s = s^.surfaceNormal ^* s^.surfaceOffset
@@ -111,8 +142,8 @@ surfaceOriginPoint s = s^.surfaceNormal ^* s^.surfaceOffset
 prioriDump :: (Metric q, Ord a, Floating a) => q a -> Surface q a -> FreeBody q a -> (a,a,a,a,Bool,a,a)
 prioriDump f s fb = (spfNormal,fbvNormal,disNormal,determinant,willCollide,solnA,solnB)
   where
-    disNormal = distanceToSurface s (fb^.freeBodyPosition)
-    fbvNormal = alongSurface s (fb^.freeBodyVelocity)
+    disNormal = distanceToSurface s (fb^.fbPosition)
+    fbvNormal = alongSurface s (fb^.fbVelocity)
     spfNormal = alongSurface s f
     determinant = fbvNormal * fbvNormal - 2 * spfNormal * disNormal
     willCollide = determinant >= 0
@@ -123,23 +154,23 @@ prioriDump f s fb = (spfNormal,fbvNormal,disNormal,determinant,willCollide,solnA
 timeOfImpact :: (Metric q, Ord a, Floating a) => q a -> Surface q a -> FreeBody q a -> Maybe a
 timeOfImpact f s fb = if willCollide then Just (minimum solns) else Nothing
   where
-    disNormal = distanceToSurface s (fb^.freeBodyPosition)
-    fbvNormal = alongSurface s (fb^.freeBodyVelocity)
+    disNormal = distanceToSurface s (fb^.fbPosition)
+    fbvNormal = alongSurface s (fb^.fbVelocity)
     spfNormal = alongSurface s f
     determinant = fbvNormal * fbvNormal - 2 * spfNormal * disNormal
     willCollide = determinant >= 0 && (not . null) solns
     -- Solve: 0.5at^2 + vt = d
     -- Take only solutions in the future
     solns = filter (>=0) $ map (\pm -> (negate fbvNormal + pm (sqrt determinant)) / spfNormal) [negate,id]
-
+{-
 sampleFullSpanCollide :: (Metric q, Ord a, Floating a) => Span a q a -> Surface q a -> FreeBody q a -> FreeBody q a
 sampleFullSpanCollide sp s fb = case timeOfImpact (sp^.spanForce) s fb of
-  Just tCol | tCol < sp^.spanDuration -> sampleForwardForce (sp^.spanForce . to (normalCancel s)) (sp^.spanDuration - tCol) $ freeBodyVelocity %~ normalCancel s $ sampleForwardForce (sp^.spanForce) tCol fb
+  Just tCol | tCol < sp^.spanDuration -> sampleForwardForce (sp^.spanForce . to (normalCancel s)) (sp^.spanDuration - tCol) $ fbVelocity %~ normalCancel s $ sampleForwardForce (sp^.spanForce) tCol fb
   _ -> fullSpan sp fb
 
 sampleForceCollide :: (Metric q, Ord a, Floating a) => q a -> Surface q a -> a -> FreeBody q a -> FreeBody q a
 sampleForceCollide f s t fb = case timeOfImpact f s fb of
-  Just tCol | tCol < t -> sampleForwardForce (normalCancel s f) (t - tCol) $ freeBodyVelocity %~ normalCancel s $ sampleForwardForce f tCol fb
+  Just tCol | tCol < t -> sampleForwardForce (normalCancel s f) (t - tCol) $ fbVelocity %~ normalCancel s $ sampleForwardForce f tCol fb
   _ -> sampleForwardForce f t fb
 
 reconcileSpans :: (Additive q, Num t, Ord t, Num a) => Map.Map t (Instant q a) -> (q a,[Span t q a])
@@ -163,23 +194,23 @@ sampleMotion m = sampleMultispanCollide (m^.motionSpans) (m^.motionFinalAccelera
 
 -- Apply the span for its entire duration to the free body
 fullSpan :: (Additive q, Fractional a) => Span a q a -> FreeBody q a -> FreeBody q a
-fullSpan sp fb = (freeBodyPosition %~ (^+^) (0.5 *^ sp^.spanForce ^* (sp^.spanDuration * sp^.spanDuration))) . (freeBodyVelocity %~ (^+^) (sp^.spanDuration *^ sp^.spanForce)) $ fb
+fullSpan sp fb = (fbPosition %~ (^+^) (0.5 *^ sp^.spanForce ^* (sp^.spanDuration * sp^.spanDuration))) . (fbVelocity %~ (^+^) (sp^.spanDuration *^ sp^.spanForce)) $ fb
 
 fullSpanDeltaV :: (Functor q, Num a) => Span a q a -> q a
 fullSpanDeltaV sp = sp^.spanDuration *^ sp^.spanForce
 
 -- Apply an acceleration for an amount of time and simulate the resulting free motion
 sampleForwardForce :: (Additive q, Fractional a) => q a -> a -> FreeBody q a -> FreeBody q a
-sampleForwardForce f t fb = (freeBodyPosition %~ (^+^) ((fb^.freeBodyVelocity ^* t) ^+^ 0.5 *^ f ^* (t * t))) . (freeBodyVelocity %~ (^+^) (t *^ f)) $ fb
+sampleForwardForce f t fb = (fbPosition %~ (^+^) ((fb^.fbVelocity ^* t) ^+^ 0.5 *^ f ^* (t * t))) . (fbVelocity %~ (^+^) (t *^ f)) $ fb
 
-freeMotion :: (Num a, Additive q) => Motion t q a
-freeMotion = Motion
-  {_motionSpans = []
-  ,_motionFinalAcceleration = zero
-  }
+--freeMotion :: (Num a, Additive q) => Motion t q a
+--freeMotion = Motion
+  --{_motionSpans = []
+  --,_motionFinalAcceleration = zero
+  --}
 
-motionFromTimeline :: (Num a, Additive q) => [Span t q a] -> Motion t q a
-motionFromTimeline tl = motionSpans .~ tl $ freeMotion
+--motionFromTimeline :: (Num a, Additive q) => [Span t q a] -> Motion t q a
+--motionFromTimeline tl = motionSpans .~ tl $ freeMotion
 
 alongSurface :: (Metric q, Num a) => Surface q a -> q a -> a
 alongSurface s q = dot q (s^.surfaceNormal)
@@ -189,7 +220,7 @@ distanceToSurface :: (Metric q,Num a) => Surface q a -> q a -> a
 distanceToSurface s floating = alongSurface s floating - s^.surfaceOffset
 
 applyForce :: (Additive q,Num a) => a -> q a -> FreeBody q a -> FreeBody q a
-applyForce dt f = freeBodyVelocity %~ (^+^) (f ^* dt)
+applyForce dt f = fbVelocity %~ (^+^) (f ^* dt)
 
 gravity :: Fractional a => V3 a
 gravity = V3 0 (-9.8) 0
@@ -216,48 +247,48 @@ surfaceThroughOrigin :: Num a => q a -> Surface q a
 surfaceThroughOrigin n = Surface{_surfaceNormal = n,_surfaceOffset = 0}
 
 checkStepWithSurface :: (Metric q,Ord a,Num a) => a -> FreeBody q a -> Surface q a -> Bool
-checkStepWithSurface dt fb s = distanceToSurface s (fb^.freeBodyPosition ^+^ step) > 0
+checkStepWithSurface dt fb s = distanceToSurface s (fb^.fbPosition ^+^ step) > 0
   where
-    step = dt *^ fb^.freeBodyVelocity
+    step = dt *^ fb^.fbVelocity
 
 -- Time until the collision
 timeUntilCollision :: (Metric q,Ord a,Fractional a) => FreeBody q a -> Surface q a -> Maybe a
 timeUntilCollision fb s = if velInDir == 0 || tCol < 0 then Nothing else Just tCol
   where
-    tCol = distanceToSurface s (fb^.freeBodyPosition) / velInDir
+    tCol = distanceToSurface s (fb^.fbPosition) / velInDir
     -- Amount of velocity directed toward the top of the surface
-    velInDir = negate $ alongSurface s (fb^.freeBodyVelocity)
+    velInDir = negate $ alongSurface s (fb^.fbVelocity)
 
 simulateStep :: (Metric q,Fractional a,Ord a) => a -> FreeBody q a -> Surface q a -> FreeBody q a
 simulateStep dt fb s = case timeUntilCollision fb s of
-  Just tCol | tCol <= dt -> simulateFreeStep (dt - tCol) $ freeBodyVelocity %~ normalCancel s $ atCol
+  Just tCol | tCol <= dt -> simulateFreeStep (dt - tCol) $ fbVelocity %~ normalCancel s $ atCol
     where
       atCol = simulateFreeStep tCol fb
   _ -> simulateFreeStep dt fb
 
 simulateFreeStep :: (Additive q,Num a) => a -> FreeBody q a -> FreeBody q a
-simulateFreeStep dt fb = freeBodyPosition %~ (^+^) (dt *^ fb^.freeBodyVelocity) $ fb
+simulateFreeStep dt fb = fbPosition %~ (^+^) (dt *^ fb^.fbVelocity) $ fb
 
 simulateFreeForce :: (Additive q,Num a) => a -> q a -> FreeBody q a -> FreeBody q a
-simulateFreeForce dt f fb = (freeBodyVelocity %~ (^+^) (dt *^ f)) . (freeBodyPosition %~ (^+^) (dt *^ fb^.freeBodyVelocity)) $ fb
+simulateFreeForce dt f fb = (fbVelocity %~ (^+^) (dt *^ f)) . (fbPosition %~ (^+^) (dt *^ fb^.fbVelocity)) $ fb
 
 simulateForce :: (Metric q,Fractional a,Num a,Ord a) => a -> q a -> Surface q a -> FreeBody q a -> FreeBody q a
 simulateForce dt f s fb = case timeUntilCollision fb s of 
-  Just tCol | tCol <= dt -> simulateFreeForce (dt - tCol) f $ freeBodyVelocity %~ normalCancel s $ atCol
+  Just tCol | tCol <= dt -> simulateFreeForce (dt - tCol) f $ fbVelocity %~ normalCancel s $ atCol
     where
       atCol = simulateFreeForce tCol f fb
   _ -> simulateFreeForce dt f fb
 
 {-
 freeMotion :: (Additive q,Num a) => FreeBody q a -> Motion q a
-freeMotion fb = motionFromSampleFunction $ \dt -> freeBodyPosition %~ (^+^) (dt *^ fb^.freeBodyVelocity) $ fb
+freeMotion fb = motionFromSampleFunction $ \dt -> fbPosition %~ (^+^) (dt *^ fb^.fbVelocity) $ fb
 
 motionUntilSurface :: (Metric q,Fractional a,Ord a) => FreeBody q a -> Surface q a -> Motion q a
 motionUntilSurface fb s = case timeUntilCollision fb s of
   -- Collides some time, so switch to free motion after cancellation
   Just tCol -> consMotion tCol (freeMotion fb) (freeMotion atCol)
     where
-      atCol = freeBodyVelocity %~ normalCancel s $ (freeMotion fb)^.sampleMotion tCol
+      atCol = fbVelocity %~ normalCancel s $ (freeMotion fb)^.sampleMotion tCol
   -- Never collides, so free motion
   Nothing -> freeMotion fb
 
