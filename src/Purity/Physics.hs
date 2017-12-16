@@ -46,8 +46,15 @@ spanDurationForce d f = Span
 data Surface q a = Surface
   {_surfaceNormal :: q a -- Unit
   ,_surfaceOffset :: a -- normals to get to surface from origin. surfaceNormal * surfaceOffset is on the surface
-  }
+  } deriving Eq
 makeLenses ''Surface
+
+-- A point mass in space. How cute.
+data PhysicsBody q a = PhysicsBody
+  {_pbFreeBody :: FreeBody q a
+  ,_pbContacts :: [Surface q a]
+  }
+makeLenses ''PhysicsBody
 
 -- A model of an object's future motion, with enough information to rebuild that future based on new forces.
 -- A motion is affine (has no initial position). Positions are relative to wherever the object starts.
@@ -59,11 +66,12 @@ data Motion t q a = Motion
 makeLenses ''Motion
 
 -- Generalizes for example velocity dependent forces and normal accelerations
-data IntegrationRule t q a = IntegrationRule
+{-data IntegrationRule t q a = IntegrationRule
   {_sampleForward :: q a -> t -> FreeBody q a -> FreeBody q a
   ,_prioriImpact :: q a -> Surface q a -> FreeBody q a -> Maybe t
   }
 makeLenses ''IntegrationRule
+-}
 
 -- Add the first motion into the second motion where the motions start at the same time
 mixInMotion :: (Additive q,Num a,Ord t,Num t) => Motion t q a -> Motion t q a -> Motion t q a
@@ -84,8 +92,6 @@ mixInMotion m' m = if
 
 motionDurationForce :: t -> q a -> Maybe (Motion t q a) -> Motion t q a
 motionDurationForce = Motion
-
-sampleMotion :: t -> Motion t q a -> FreeBody q a
 
 {-
 mixInForce :: (Additive q,Num a,Ord t,Num t) => t -> Span t q a -> Motion t q a -> Motion t q a
@@ -162,17 +168,34 @@ timeOfImpact f s fb = if willCollide then Just (minimum solns) else Nothing
     -- Solve: 0.5at^2 + vt = d
     -- Take only solutions in the future
     solns = filter (>=0) $ map (\pm -> (negate fbvNormal + pm (sqrt determinant)) / spfNormal) [negate,id]
+
+sampleForward :: (Metric q, Ord a, Floating a) => a -> q a -> Surface q a -> PhysicsBody q a -> PhysicsBody q a
+sampleForward dt f s fb = case timeOfImpact f s fb of
+  Just tImpact -> if tImpact <= dt
+    then simulateFreeForce tImpact f fb
+    else simulateFreeForce dt f fb
+  Nothing -> simulateFreeForce dt f fb
+  where
+    toSurf = distanceToSurface s (fb^.fbPosition)
+
+simulateConstrainedForce :: a -> q a -> PhysicsBody q a -> PhysicsBody q a
+simulateConstrainedForce dt f pb = simulateFreeForce dt (fullCancel f) (fbVelocity ~% fullCancel $ pb^.pbFreeBody)
+  where
+    fullCancel x = foldr normalCancel x (pb^.pbContacts)
 {-
 sampleFullSpanCollide :: (Metric q, Ord a, Floating a) => Span a q a -> Surface q a -> FreeBody q a -> FreeBody q a
 sampleFullSpanCollide sp s fb = case timeOfImpact (sp^.spanForce) s fb of
   Just tCol | tCol < sp^.spanDuration -> sampleForwardForce (sp^.spanForce . to (normalCancel s)) (sp^.spanDuration - tCol) $ fbVelocity %~ normalCancel s $ sampleForwardForce (sp^.spanForce) tCol fb
   _ -> fullSpan sp fb
-
+-}
+{-
 sampleForceCollide :: (Metric q, Ord a, Floating a) => q a -> Surface q a -> a -> FreeBody q a -> FreeBody q a
 sampleForceCollide f s t fb = case timeOfImpact f s fb of
   Just tCol | tCol < t -> sampleForwardForce (normalCancel s f) (t - tCol) $ fbVelocity %~ normalCancel s $ sampleForwardForce f tCol fb
   _ -> sampleForwardForce f t fb
 
+-}
+{-
 reconcileSpans :: (Additive q, Num t, Ord t, Num a) => Map.Map t (Instant q a) -> (q a,[Span t q a])
 reconcileSpans m = go zero splitIndicies
   where
@@ -183,42 +206,61 @@ reconcileSpans m = go zero splitIndicies
       where c' = c ^+^ dff^.instantDelta
     go c [] = (c,[])
 
+-}
+{-
 sampleMultispanCollide :: (Metric q, Ord a, Floating a) => [Span a q a] -> q a -> Surface q a -> a -> FreeBody q a -> FreeBody q a
 sampleMultispanCollide (sp:sps) ff s t fb
   | t >= sp^.spanDuration = sampleMultispanCollide sps ff s (t - sp^.spanDuration) (sampleFullSpanCollide sp s fb)
   | otherwise = sampleForceCollide (sp^.spanForce) s t fb
 sampleMultispanCollide [] ff s t fb = sampleForceCollide ff s t fb
 
+-}
+{-
 sampleMotion :: (Metric q, Ord a, Floating a) => Motion a q a -> Surface q a -> a -> FreeBody q a -> FreeBody q a
 sampleMotion m = sampleMultispanCollide (m^.motionSpans) (m^.motionFinalAcceleration)
 
+-}
+{-
 -- Apply the span for its entire duration to the free body
 fullSpan :: (Additive q, Fractional a) => Span a q a -> FreeBody q a -> FreeBody q a
 fullSpan sp fb = (fbPosition %~ (^+^) (0.5 *^ sp^.spanForce ^* (sp^.spanDuration * sp^.spanDuration))) . (fbVelocity %~ (^+^) (sp^.spanDuration *^ sp^.spanForce)) $ fb
 
+-}
+{-
 fullSpanDeltaV :: (Functor q, Num a) => Span a q a -> q a
 fullSpanDeltaV sp = sp^.spanDuration *^ sp^.spanForce
 
+-}
+{-
 -- Apply an acceleration for an amount of time and simulate the resulting free motion
 sampleForwardForce :: (Additive q, Fractional a) => q a -> a -> FreeBody q a -> FreeBody q a
 sampleForwardForce f t fb = (fbPosition %~ (^+^) ((fb^.fbVelocity ^* t) ^+^ 0.5 *^ f ^* (t * t))) . (fbVelocity %~ (^+^) (t *^ f)) $ fb
 
+-}
+{-
 --freeMotion :: (Num a, Additive q) => Motion t q a
 --freeMotion = Motion
   --{_motionSpans = []
   --,_motionFinalAcceleration = zero
-  --}
+  -- }
 
+-}
+{-
 --motionFromTimeline :: (Num a, Additive q) => [Span t q a] -> Motion t q a
 --motionFromTimeline tl = motionSpans .~ tl $ freeMotion
 
+-}
+{-
 alongSurface :: (Metric q, Num a) => Surface q a -> q a -> a
 alongSurface s q = dot q (s^.surfaceNormal)
 
+-}
+{-
 -- Positive when above surface, negative when below
 distanceToSurface :: (Metric q,Num a) => Surface q a -> q a -> a
 distanceToSurface s floating = alongSurface s floating - s^.surfaceOffset
 
+-}
 applyForce :: (Additive q,Num a) => a -> q a -> FreeBody q a -> FreeBody q a
 applyForce dt f = fbVelocity %~ (^+^) (f ^* dt)
 

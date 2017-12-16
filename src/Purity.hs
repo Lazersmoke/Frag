@@ -219,9 +219,6 @@ renderLoop !state openGLInfo theWindow = do
     -- Uses incorrect frame time TODO
     updatePhysics = playerMotion %~ mixInForce 0 (spanDurationForce 0.01 netForce) . seekMotionForward 1
 
-    -- Setup motion for next frame
-    -- jk
-
     -- Set the player body to the updated position based on prexisting motion
     sampleFromMotion = playerBody %~ sampleMotion (state^.playerMotion) groundSurface dt
     state' = updateLight . updateForward . (frameTime .~ ft) . updatePhysics . sampleFromMotion $ state
