@@ -7,7 +7,7 @@ module Purity.Physics where
 
 import Linear
 import Control.Lens
---import qualified Data.Map.Strict as Map
+import qualified Data.Set as Set
 
 -- A point mass in space. How cute.
 data FreeBody q a = FreeBody
@@ -16,120 +16,19 @@ data FreeBody q a = FreeBody
   }
 makeLenses ''FreeBody
 
--- An instantaneous change in acceleration
-newtype Instant q a = Instant
-  {_instantDelta :: q a
-  } deriving (Eq,Ord)
-makeLenses ''Instant
-
-instance Show (q a) => Show (Instant q a) where
-  show i = "Delta{" ++ i^.instantDelta.to show ++ "}"
-
--- A segment of time during which there is a constant acceleration
-data Span t q a = Span
-  {_spanDuration :: t
-  ,_spanForce :: q a
-  } deriving (Eq,Ord)
-makeLenses ''Span
-
-instance (Eq t, Num t, Show t, Show (q a)) => Show (Span t q a) where
-  show sp 
-    | sp^.spanDuration == 0 = "\x1b[31mWARNING: ZERO LENGTH SPAN with spanForce: " ++ sp^.spanDuration.to show ++ "\x1b[0m"
-    | otherwise = "{" ++ sp^.spanForce.to show ++ "} for " ++ sp^.spanDuration.to show ++ "s"
-
-spanDurationForce :: t -> q a -> Span t q a
-spanDurationForce d f = Span
-  {_spanDuration = d
-  ,_spanForce = f
-  }
-
 data Surface q a = Surface
   {_surfaceNormal :: q a -- Unit
   ,_surfaceOffset :: a -- normals to get to surface from origin. surfaceNormal * surfaceOffset is on the surface
-  } deriving Eq
+  } deriving (Eq,Ord)
 makeLenses ''Surface
 
 -- A point mass in space. How cute.
 data PhysicsBody q a = PhysicsBody
   {_pbFreeBody :: FreeBody q a
-  ,_pbContacts :: [Surface q a]
+  ,_pbContacts :: Set.Set (Surface q a)
   }
 makeLenses ''PhysicsBody
 
--- A model of an object's future motion, with enough information to rebuild that future based on new forces.
--- A motion is affine (has no initial position). Positions are relative to wherever the object starts.
-data Motion t q a = Motion
-  {_motionDuration :: t
-  ,_motionForce :: q a
-  ,_nextMotion :: Maybe (Motion t q a)
-  } deriving Show
-makeLenses ''Motion
-
--- Generalizes for example velocity dependent forces and normal accelerations
-{-data IntegrationRule t q a = IntegrationRule
-  {_sampleForward :: q a -> t -> FreeBody q a -> FreeBody q a
-  ,_prioriImpact :: q a -> Surface q a -> FreeBody q a -> Maybe t
-  }
-makeLenses ''IntegrationRule
--}
-
--- Add the first motion into the second motion where the motions start at the same time
-mixInMotion :: (Additive q,Num a,Ord t,Num t) => Motion t q a -> Motion t q a -> Motion t q a
-mixInMotion m' m = if
-  -- If the mix-in goes past the first leg of the target, mix the first leg of the target, then mix with the rest of the target
-  | m'^.motionDuration > m^.motionDuration -> (nextMotion %~ zipMix (Just $ motionDuration -~ m^.motionDuration $ m')) . (motionForce %~ (^+^ m'^.motionForce)) $ m
-  -- If the mix-in just matches the first leg of the target, mix together directly
-  -- (m') [m+m'] | mixInMotion etc{m'} etc{m}
-  | m'^.motionDuration == m^.motionDuration -> (nextMotion %~ zipMix (m'^.nextMotion)) . (motionForce %~ (^+^ m'^.motionForce)) $ m
-  -- If the mix-in stops before the end of the first leg of the target, mix the other way around
-  | m'^.motionDuration < m^.motionDuration ->  mixInMotion m m'
-  | otherwise -> error "Broken Ord instance for time in mixInMotion"
-  where
-    zipMix Nothing (Just a) = Just a
-    zipMix (Just a) Nothing = Just a
-    zipMix Nothing Nothing = Nothing
-    zipMix (Just a) (Just b) = Just $ mixInMotion a b
-
-motionDurationForce :: t -> q a -> Maybe (Motion t q a) -> Motion t q a
-motionDurationForce = Motion
-
-{-
-mixInForce :: (Additive q,Num a,Ord t,Num t) => t -> Span t q a -> Motion t q a -> Motion t q a
-mixInForce t' f' = motionSpans %~ go t' f'
-  where
-    go t f (sp:sps) = if 
-      -- The inserted span is inserted after the end of the first span
-      | t >= sp^.spanDuration -> sp : go (t - sp^.spanDuration) f sps
-      -- The inserted span is inserted during the current span
-      | otherwise -> if
-        -- The inserted span's duration exceeds that of the current span; modify the existing span and recurse with t=0
-        | f^.spanDuration > sp^.spanDuration -> (spanForce %~ (^+^ f^.spanForce) $ sp) : go 0 (spanDuration %~ (subtract $ sp^.spanDuration) $ f) sps
-        -- The inserted span's duration matches that of the current span; modify the existing span only
-        | f^.spanDuration == sp^.spanDuration -> (spanForce %~ (^+^ f^.spanForce) $ sp) : sps
-        -- The inserted span's duration is less than that of the current span; split into two spans
-        | f^.spanDuration < sp^.spanDuration -> (spanForce %~ (^+^ sp^.spanForce) $ f) : (spanDuration %~ (subtract $ f^.spanDuration) $ sp) : sps
-    -- We have run out of spans; add the inserted span to the end of the motion
-    -- Don't modify motionFinalAcceleration, which has sketchy semantics to say the least.
-    go t f [] = if t == 0
-      then f : []
-      else spanDurationForce t zero : f : []
-
-seekMotionForward :: (Ord t, Num t) => t -> Motion t q a -> Motion t q a
-seekMotionForward cut = motionSpans %~ go cut
-  where
-    go t (sp:sps) = if
-      -- If the cut happens after this span, so we cut this span
-      | t >= sp^.spanDuration -> go (t - sp^.spanDuration) sps
-      -- If the cut happens during this span, we care
-      -- Cut the given time off of this span
-      | otherwise -> (spanDuration %~ subtract t) sp : sps
-    -- If we run out of spans, that's good!
-    -- They've cut to a time beyond our predictions, so our semantics take care of it.
-    go _ [] = []
-
---insertInstant :: (Additive q,Num a,Ord t) => t -> Instant q a -> Motion t q a -> Motion t q a
---insertInstant t i = motionInstants %~ Map.alter (\case {Just a -> Just $ instantDelta %~ (^+^ i^.instantDelta) $ a; Nothing -> Just i}) t
--}
 instance (Additive q,R3 q,Num a,Show a) => Show (FreeBody q a) where
   show fb = "{[o](" 
     ++ show (fb^.fbPosition^._x) ++ ","
@@ -169,98 +68,37 @@ timeOfImpact f s fb = if willCollide then Just (minimum solns) else Nothing
     -- Take only solutions in the future
     solns = filter (>=0) $ map (\pm -> (negate fbvNormal + pm (sqrt determinant)) / spfNormal) [negate,id]
 
-sampleForward :: (Metric q, Ord a, Floating a) => a -> q a -> Surface q a -> PhysicsBody q a -> PhysicsBody q a
-sampleForward dt f s fb = case timeOfImpact f s fb of
-  Just tImpact -> if tImpact <= dt
-    then simulateFreeForce tImpact f fb
-    else simulateFreeForce dt f fb
-  Nothing -> simulateFreeForce dt f fb
-  where
-    toSurf = distanceToSurface s (fb^.fbPosition)
+constrained :: PhysicsBody q a -> FreeBody q a
+constrained 
 
-simulateConstrainedForce :: a -> q a -> PhysicsBody q a -> PhysicsBody q a
-simulateConstrainedForce dt f pb = simulateFreeForce dt (fullCancel f) (fbVelocity ~% fullCancel $ pb^.pbFreeBody)
+sampleForward :: (Metric q, Ord a, Floating a) => a -> q a -> Surface q a -> PhysicsBody q a -> PhysicsBody q a
+sampleForward dt f s pb = case timeOfImpact f s pb of
+  Just tImpact -> if tImpact <= dt
+    then (pbContacts %~ Set.insert s) . (pbFreeBody %~ simulateFreeForce tImpact f) $ pb
+    else pbFreeBody %~ simulateFreeForce dt f $ pb
+  Nothing -> pbFreeBody %~ simulateFreeForce dt f $ pb
+
+simulateConstrainedForce :: (Metric q,Num a,Ord a) => a -> q a -> PhysicsBody q a -> PhysicsBody q a
+simulateConstrainedForce dt f pb = (pbFreeBody %~ simulateFreeForce dt (fullCancel f)) . (pbFreeBody.fbVelocity %~ fullCancel) $ pb
   where
     fullCancel x = foldr normalCancel x (pb^.pbContacts)
-{-
-sampleFullSpanCollide :: (Metric q, Ord a, Floating a) => Span a q a -> Surface q a -> FreeBody q a -> FreeBody q a
-sampleFullSpanCollide sp s fb = case timeOfImpact (sp^.spanForce) s fb of
-  Just tCol | tCol < sp^.spanDuration -> sampleForwardForce (sp^.spanForce . to (normalCancel s)) (sp^.spanDuration - tCol) $ fbVelocity %~ normalCancel s $ sampleForwardForce (sp^.spanForce) tCol fb
-  _ -> fullSpan sp fb
--}
-{-
+
 sampleForceCollide :: (Metric q, Ord a, Floating a) => q a -> Surface q a -> a -> FreeBody q a -> FreeBody q a
 sampleForceCollide f s t fb = case timeOfImpact f s fb of
   Just tCol | tCol < t -> sampleForwardForce (normalCancel s f) (t - tCol) $ fbVelocity %~ normalCancel s $ sampleForwardForce f tCol fb
   _ -> sampleForwardForce f t fb
 
--}
-{-
-reconcileSpans :: (Additive q, Num t, Ord t, Num a) => Map.Map t (Instant q a) -> (q a,[Span t q a])
-reconcileSpans m = go zero splitIndicies
-  where
-    splitIndicies = Map.assocs m
-    go c ((t0,df0):(t1,df1):sps) = _1 .~ c' $ _2 %~ (spanDurationForce (t1 - t0) c':) $ go c' ((t1,df1):sps)
-      where c' = c ^+^ df0^.instantDelta
-    go c ((_tf,dff):[]) = (c',spanDurationForce 0 c' : [])
-      where c' = c ^+^ dff^.instantDelta
-    go c [] = (c,[])
-
--}
-{-
-sampleMultispanCollide :: (Metric q, Ord a, Floating a) => [Span a q a] -> q a -> Surface q a -> a -> FreeBody q a -> FreeBody q a
-sampleMultispanCollide (sp:sps) ff s t fb
-  | t >= sp^.spanDuration = sampleMultispanCollide sps ff s (t - sp^.spanDuration) (sampleFullSpanCollide sp s fb)
-  | otherwise = sampleForceCollide (sp^.spanForce) s t fb
-sampleMultispanCollide [] ff s t fb = sampleForceCollide ff s t fb
-
--}
-{-
-sampleMotion :: (Metric q, Ord a, Floating a) => Motion a q a -> Surface q a -> a -> FreeBody q a -> FreeBody q a
-sampleMotion m = sampleMultispanCollide (m^.motionSpans) (m^.motionFinalAcceleration)
-
--}
-{-
--- Apply the span for its entire duration to the free body
-fullSpan :: (Additive q, Fractional a) => Span a q a -> FreeBody q a -> FreeBody q a
-fullSpan sp fb = (fbPosition %~ (^+^) (0.5 *^ sp^.spanForce ^* (sp^.spanDuration * sp^.spanDuration))) . (fbVelocity %~ (^+^) (sp^.spanDuration *^ sp^.spanForce)) $ fb
-
--}
-{-
-fullSpanDeltaV :: (Functor q, Num a) => Span a q a -> q a
-fullSpanDeltaV sp = sp^.spanDuration *^ sp^.spanForce
-
--}
-{-
 -- Apply an acceleration for an amount of time and simulate the resulting free motion
 sampleForwardForce :: (Additive q, Fractional a) => q a -> a -> FreeBody q a -> FreeBody q a
 sampleForwardForce f t fb = (fbPosition %~ (^+^) ((fb^.fbVelocity ^* t) ^+^ 0.5 *^ f ^* (t * t))) . (fbVelocity %~ (^+^) (t *^ f)) $ fb
 
--}
-{-
---freeMotion :: (Num a, Additive q) => Motion t q a
---freeMotion = Motion
-  --{_motionSpans = []
-  --,_motionFinalAcceleration = zero
-  -- }
-
--}
-{-
---motionFromTimeline :: (Num a, Additive q) => [Span t q a] -> Motion t q a
---motionFromTimeline tl = motionSpans .~ tl $ freeMotion
-
--}
-{-
 alongSurface :: (Metric q, Num a) => Surface q a -> q a -> a
 alongSurface s q = dot q (s^.surfaceNormal)
 
--}
-{-
 -- Positive when above surface, negative when below
 distanceToSurface :: (Metric q,Num a) => Surface q a -> q a -> a
 distanceToSurface s floating = alongSurface s floating - s^.surfaceOffset
 
--}
 applyForce :: (Additive q,Num a) => a -> q a -> FreeBody q a -> FreeBody q a
 applyForce dt f = fbVelocity %~ (^+^) (f ^* dt)
 
