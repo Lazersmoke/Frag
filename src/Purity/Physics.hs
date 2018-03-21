@@ -22,6 +22,7 @@ data PhysModel q a = PhysModel
   {_physDomain :: PhysDomain q a
   ,_currentVelocity :: q a
   ,_currentOrigin :: q a
+  ,_currentOrientation :: Quaternion a
   }
 makeLenses ''PhysModel
 

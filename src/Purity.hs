@@ -20,16 +20,9 @@ import Purity.Physics
 import Purity.Render
 import Purity.Data
 
--- | All the context that must be passed from OpenGL initialization to the renderer
-data OpenGLInfo = OpenGLInfo
-  {renderModels :: [RenderModel]
-  ,shaderProgram :: GLuint
-  ,modelMatrixId :: GLint
-  ,viewMatrixId :: GLint
-  ,projectionMatrixId :: GLint
-  ,lightLocationId :: GLint
-  --,textureId :: GLuint
-  ,textureSamplerId :: GLint
+data Presence q a = Presence
+  {visiblePresence :: DrawModel
+  ,physicalPresence :: PhysModel q a
   }
 
 -- | A type encapsulating all state in purity
@@ -39,7 +32,7 @@ data PurityState = PurityState
   ,_frameTimeInitial :: Float
   ,_frameTime :: Float
   ,_lightPosition :: V3 Float
-  ,_teapot :: PhysModel V3 Float
+  ,_presences :: [Presence V3 Float]
   }
 makeLenses ''PurityState
 
@@ -50,11 +43,7 @@ defaultPurityState = PurityState
   ,_frameTimeInitial = 0
   ,_frameTime = 0
   ,_lightPosition = V3 4 3 3
-  ,_teapot = PhysModel
-    {_physDomain = AABB (V3 0 0 0) (V3 1 1 1)
-    ,_currentVelocity = V3 1 5 0
-    ,_currentOrigin = V3 0 0 0
-    }
+  ,_presences = []
   }
 
 instance Show PurityState where
@@ -64,6 +53,11 @@ instance Show PurityState where
     " | Frame Time Initial: " ++ s^.frameTimeInitial.to show ++
     " | Frame Time: " ++ s^.frameTime.to show ++
     " | Light Position: " ++ s^.lightPosition.to show ++ "}"
+
+aabbContaining :: RenderModel -> PhysDomain V3 GLfloat
+aabbContaining rm = AABB (minimum <$> trans) (maximum <$> trans)
+  where
+    trans = sequenceA (modelVerticies rm)
 
 -- | The main entry point
 purityMain :: IO ()
@@ -102,9 +96,21 @@ purityMain = do
           --GLFW.setCursorPos theWindow (fromIntegral windowX/2) (fromIntegral windowY/2)
           logTag "Initializing OpenGL..."
           openGLInfo <- initGL
+          logTag "Adding Teapot..."
+          rmTeapot <- initModel "normalTeapot.obj"
+          let 
+           teapot = Presence
+            {visiblePresence = loadedModel rmTeapot
+            ,physicalPresence = PhysModel
+              {_physDomain = aabbContaining rmTeapot
+              ,_currentVelocity = V3 1 5 0
+              ,_currentOrigin = V3 0 0 0
+              ,_currentOrientation = axisAngle (V3 0 0 (-1)) 0
+              }
+            }
           logTag "Entering render loop..."
           Just ft0 <- (fmap realToFrac) <$> GLFW.getTime
-          renderLoop ((frameTimeInitial .~ ft0) . (frameTime .~ ft0) $ defaultPurityState) openGLInfo theWindow
+          renderLoop ((presences .~ [teapot]) . (frameTimeInitial .~ ft0) . (frameTime .~ ft0) $ defaultPurityState) openGLInfo theWindow
     False -> logTag "Failure!"
   where
     logTag = logStrTag "purityMain"
@@ -113,20 +119,20 @@ purityMain = do
 -- | A loop that renders the scene until the program ends
 renderLoop :: PurityState -> OpenGLInfo -> GLFW.Window -> IO ()
 renderLoop !state openGLInfo theWindow = do
-  -- Compute matricies for this frame
-  let
-    tea' = (sampleModelForward (state^.frameTime - state^.frameTimeInitial) (V3 0 (-0.5) 0) (state^.teapot))^.currentOrigin
-    mMat = V4
-      (V4 1 0 0 (tea'^._x))
-      (V4 0 1 0 (tea'^._y))
-      (V4 0 0 1 (tea'^._z))
-      (V4 0 0 0 1)
-    vMat = inv44 $ lookIn (state^.cameraPosition) (state^.cameraForward)
-    pMat = perspective (45 * pi/180) (4/3) 0.1 100
+  -- Compute updated physics models for this frame
+  renderables <- forM (state^.presences) $ \pres -> do
+    let tea' = sampleModelForward (state^.frameTime - state^.frameTimeInitial) (V3 0 (-5) 0) (physicalPresence pres)
+    pure RenderSpec
+      {modelMatrix = mkTransformation (tea'^.currentOrientation) (tea'^.currentOrigin)
+      ,viewMatrix = inv44 $ lookIn (state^.cameraPosition) (state^.cameraForward)
+      ,projMatrix = perspective (45 * pi/180) (4/3) 0.1 100
+      ,lightPos = state^.lightPosition
+      ,modelToRender = visiblePresence pres
+      }
 
   -- Render this frame
   logTag "Drawing..."
-  draw openGLInfo (mMat,vMat,pMat,state^.lightPosition)
+  draw openGLInfo renderables
   logTag "Swapping buffers..."
   GLFW.swapBuffers theWindow
 
@@ -204,11 +210,6 @@ initGL = do
   logTag "Enabling back face culling..."
   glEnable GL_CULL_FACE
 
-  loadedModels <- mapM initModel 
-    ["cube.obj"
-    --,"normalTeapot.obj"
-    ]
-
   logTag "Loading Vertex Shader..."
   vShader <- loadShader GL_VERTEX_SHADER "vertexShader"
   logTag "Loading Fragment Shader..."
@@ -246,8 +247,7 @@ initGL = do
   [modelId,viewId,projectionId,lightId,textureSamplerId'] <- mapM (flip withCString (glGetUniformLocation programId)) ["Model","View","Projection","LightPosition","TextureSampler"]
 
   pure $ OpenGLInfo 
-    {renderModels = loadedModels
-    ,shaderProgram = programId
+    {shaderProgram = programId
     ,modelMatrixId = modelId
     ,viewMatrixId = viewId
     ,projectionMatrixId = projectionId
@@ -271,10 +271,6 @@ stdOrtho = V4
 -- | Build a view matrix for looking in the direction of a unit vector from a point.
 lookIn :: (Conjugate a,RealFloat a) => V3 a -> Quaternion a -> M44 a
 lookIn eye forward = mkTransformation forward eye
-
--- | Pretty(ish) print a matrix-like structure
-prettyMatrix :: (Foldable f, Foldable g, Show a) => f (g a) -> String
-prettyMatrix = foldMap ((++"\n") . foldMap ((++" \t") . show))
 
 -- | Load a shader of the specified type from the specified file
 loadShader :: GLenum -> FilePath -> IO GLuint
@@ -304,26 +300,14 @@ loadShader shaderType shaderPath = do
     logTag = logStrTag "loadShader"
 
 -- | Draw a frame
-draw :: OpenGLInfo -> (M44 GLfloat,M44 GLfloat,M44 GLfloat,V3 GLfloat) -> IO ()
-draw OpenGLInfo{..} (m,v,p,l) = do
+draw :: OpenGLInfo -> [RenderSpec] -> IO ()
+draw glInfo@OpenGLInfo{..} models = do
   logTag "Clearing screen..."
   glClear $ GL_COLOR_BUFFER_BIT .|. GL_DEPTH_BUFFER_BIT
   logTag "Using shader program..."
   glUseProgram shaderProgram
-  forM_ [("Model",modelMatrixId,m),("View",viewMatrixId,v),("Projection",projectionMatrixId,p)] $ \(matName,matId,mat) -> do
-    logTag $ "Sending " ++ matName ++ " matrix..."
-    logTag $ prettyMatrix $ mat
-    with mat $ glUniformMatrix4fv matId 1 GL_TRUE . (castPtr :: Ptr (M44 GLfloat) -> Ptr GLfloat)
-
-  -- Send light position
-  logTag "Sending light position..."
-  with l $ glUniform3fv lightLocationId 1 . castPtr
-
-  logTag "Unleashing texture sampler on unit 0..."
-  glUniform1i textureSamplerId 0
-
   logTag "Rendering all models..."
-  forM_ renderModels drawModel
+  forM_ models (drawModel glInfo)
   {-forM_ attributeBuffers $ \(VertexAttribute{..}) -> do
     logTag $ "Disabling vertex " ++ attributeName ++ " attribute..."
     glDisableVertexAttribArray attributeIndex

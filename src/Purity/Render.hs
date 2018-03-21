@@ -1,4 +1,5 @@
 {-# LANGUAGE RecordWildCards #-}
+{-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE MultiWayIf #-}
@@ -8,8 +9,8 @@
 module Purity.Render where
 
 import Linear
-import Control.Monad
 import Graphics.GL.Core45
+import Control.Monad
 import qualified Codec.Wavefront as Wavefront
 import qualified Data.Vector as Vector
 import qualified Data.Vector.Storable as Storable
@@ -20,16 +21,60 @@ import Foreign hiding (rotate)
 import Purity.Data
 
 data RenderModel = RenderModel
+  {loadedModel :: DrawModel
+  ,modelVerticies :: [V3 GLfloat]
+  ,modelTexCoords :: Maybe [V2 GLfloat]
+  ,modelNormals :: Maybe [V3 GLfloat]
+  ,modelIndicies :: [V3 GLushort]
+  }
+
+data DrawModel = DrawModel
   {indexCount :: GLsizei
   ,vaoName :: GLuint
   }
 
-drawModel :: RenderModel -> IO ()
-drawModel rm = do
+-- | The per-model information needed to render
+data RenderSpec = RenderSpec
+  {modelMatrix :: M44 GLfloat
+  ,viewMatrix :: M44 GLfloat
+  ,projMatrix :: M44 GLfloat
+  ,lightPos :: V3 GLfloat
+  ,modelToRender :: DrawModel
+  }
+
+-- | All the context that must be passed from OpenGL initialization to the renderer
+data OpenGLInfo = OpenGLInfo
+  {shaderProgram :: GLuint
+  ,modelMatrixId :: GLint
+  ,viewMatrixId :: GLint
+  ,projectionMatrixId :: GLint
+  ,lightLocationId :: GLint
+  ,textureSamplerId :: GLint
+  }
+
+-- | Pretty(ish) print a matrix-like structure
+prettyMatrix :: (Foldable f, Foldable g, Show a) => f (g a) -> String
+prettyMatrix = (++"\n") . foldMap ((++"\n") . foldMap ((++" \t") . show))
+
+drawModel :: OpenGLInfo -> RenderSpec -> IO ()
+drawModel OpenGLInfo{..} RenderSpec{..} = do
+  forM_ [("Model",modelMatrixId,modelMatrix),("View",viewMatrixId,viewMatrix),("Projection",projectionMatrixId,projMatrix)] $ \(matName,matId,mat) -> do
+    logTag $ "Sending " ++ matName ++ " matrix..."
+    logTag $ prettyMatrix $ mat
+    with mat $ glUniformMatrix4fv matId 1 GL_TRUE . (castPtr :: Ptr (M44 GLfloat) -> Ptr GLfloat)
+
+  -- Send light position
+  logTag "Sending light position..."
+  with lightPos $ glUniform3fv lightLocationId 1 . castPtr
+
+  logTag "Unleashing texture sampler on unit 0..."
+  glUniform1i textureSamplerId 0
+
+
   logTag "Binding VAO..."
-  glBindVertexArray (vaoName rm)
+  glBindVertexArray (vaoName modelToRender)
   logTag "Drawing triangles..."
-  glDrawElements GL_TRIANGLES (indexCount rm) GL_UNSIGNED_SHORT nullPtr
+  glDrawElements GL_TRIANGLES (indexCount modelToRender) GL_UNSIGNED_SHORT nullPtr
   where
     logTag = logStrTag "drawModel"
 
@@ -45,7 +90,7 @@ data VertexAttribute = VertexAttribute
   ,attributeOffset :: Ptr Void
   }
 
--- | Load a RenderModel from a file path to its obj
+-- | Load a DrawModel from a file path to its obj
 initModel :: String -> IO RenderModel
 initModel modelPath = do
   logTag "Generating Vertex Array Object Name..."
@@ -56,10 +101,10 @@ initModel modelPath = do
 
   logTag "Generating Vertex Buffer Names..."
   [vbo,tbo,nbo,ibo] <- alloca $ \namePtr -> glGenBuffers 4 namePtr *> peekArray 4 namePtr
-  logTag $ "Vertex buffer: " ++ show vbo
-  logTag $ "Texture coordinate buffer: " ++ show tbo
-  logTag $ "Normal buffer: " ++ show nbo
-  logTag $ "Index buffer: " ++ show ibo
+  logTag $ "  Vertex buffer: " ++ show vbo
+  logTag $ "  Texture coordinate buffer: " ++ show tbo
+  logTag $ "  Normal buffer: " ++ show nbo
+  logTag $ "  Index buffer: " ++ show ibo
 
   logTag "Generating texture name..."
   textureId' <- alloca $ \namePtr -> glGenTextures 1 namePtr *> peek namePtr
@@ -98,24 +143,31 @@ initModel modelPath = do
     Left e -> error e
 
   logTag "Buffering vertex attributes..."
-  let vertexData = fmap (\(Wavefront.Location x y z _w) -> V3 x y z) . Vector.toList $ Wavefront.objLocations model
-  bufferGLData "position" vbo GL_ARRAY_BUFFER (vertexData :: [V3 GLfloat])
-  initGLAttr (VertexAttribute "position" vbo 0 3 GL_FLOAT GL_FALSE 0 nullPtr)
-
-  let textureData = fmap (\(Wavefront.TexCoord r s _t) -> V2 r s) . Vector.toList . Wavefront.objTexCoords $ model
-  when (not . null $ textureData) $ do
-    bufferGLData "texture coordinate" tbo GL_ARRAY_BUFFER (textureData :: [V2 GLfloat])
-    initGLAttr (VertexAttribute "texture coordinate" tbo 1 2 GL_FLOAT GL_FALSE 0 nullPtr)
-
-  let normalData = fmap (\(Wavefront.Normal x y z) -> V3 x y z) . Vector.toList . Wavefront.objNormals $ model
-  bufferGLData "normal" nbo GL_ARRAY_BUFFER (normalData :: [V3 GLfloat])
-  initGLAttr (VertexAttribute "normal" nbo 2 3 GL_FLOAT GL_FALSE 0 nullPtr)
+  Just pos <- loadVertexAttr @(V3 GLfloat) model Wavefront.objLocations (\(Wavefront.Location x y z _w) -> V3 x y z) (VertexAttribute "position" vbo 0 3 GL_FLOAT GL_FALSE 0 nullPtr)
+  mTex <- loadVertexAttr @(V2 GLfloat) model Wavefront.objTexCoords (\(Wavefront.TexCoord r s _t) -> V2 r s) (VertexAttribute "texture coordinate" tbo 1 2 GL_FLOAT GL_FALSE 0 nullPtr)
+  mNor <- loadVertexAttr @(V3 GLfloat) model Wavefront.objNormals (\(Wavefront.Normal x y z) -> V3 x y z) (VertexAttribute "normal" nbo 2 3 GL_FLOAT GL_FALSE 0 nullPtr)
 
   let indexData = fmap (fmap (fromIntegral . subtract 1 . Wavefront.faceLocIndex) . (\(Wavefront.Face a b c _fs) -> V3 a b c) . Wavefront.elValue) . Vector.toList . Wavefront.objFaces $ model
   bufferGLData "index" ibo GL_ELEMENT_ARRAY_BUFFER (indexData :: [V3 GLushort])
-  pure RenderModel {vaoName = vao,indexCount = fromIntegral $ length indexData * 3}
+  pure RenderModel 
+    {loadedModel = DrawModel {vaoName = vao,indexCount = fromIntegral $ length indexData * 3}
+    ,modelVerticies = pos
+    ,modelTexCoords = mTex
+    ,modelNormals = mNor
+    ,modelIndicies = indexData
+    }
   where
     logTag = logStrTag "initModel"
+
+loadVertexAttr :: (Show q, Storable q) => Wavefront.WavefrontOBJ -> (Wavefront.WavefrontOBJ -> Vector.Vector e) -> (e -> q) -> VertexAttribute -> IO (Maybe [q])
+loadVertexAttr model exElems toVec attr@(VertexAttribute{..}) = do
+  let vecs = fmap toVec . Vector.toList . exElems $ model
+  if null vecs
+    then pure Nothing
+    else do
+      bufferGLData attributeName attributeObjectName GL_ARRAY_BUFFER vecs
+      initGLAttr attr
+      pure (Just vecs)
 
 bufferGLData :: forall a. (Show a,Storable a) => String -> GLuint -> GLenum -> [a] -> IO ()
 bufferGLData name bufferName bufferType bufferData = do
