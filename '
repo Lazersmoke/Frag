@@ -10,7 +10,7 @@ import Linear
 import Control.Lens
 import Control.Monad
 import Data.Foldable
---import Debug.Trace
+import Debug.Trace
 
 newtype Surface q a = Surface
   {_surfaceNormal :: q a -- Surface is at and normal to tip of vector
@@ -49,13 +49,6 @@ data PhysFuture q a = PhysFuture
   }
 makeLenses ''PhysFuture
 
-data PhysStory q a = PhysStory
-  {_initialModel :: PhysFuture q a
-  -- (expiryTime,nextChapter)
-  ,_nextChapter :: Maybe (a,PhysStory q a)
-  }
-makeLenses ''PhysStory
-
 --translateDomain :: (Num a, Additive q) => q a -> PhysDomain q a -> PhysDomain q a
 --translateDomain off (AABB low high) = AABB (low ^+^ off) (high ^+^ off)
 
@@ -71,11 +64,6 @@ readFuture dt f = updateVel . updatePos $ f^.presentModel
     updateVel = currentVelocity %~ (^+^ dt *^ f^.appliedForce)
     updatePos = currentOrigin %~ (^+^ translationConstantAccel dt (f^.presentModel.currentVelocity) (f^.appliedForce))
 
-readStory :: (Fractional a, Additive q, Ord a) => a -> PhysStory q a -> PhysModel q a
-readStory dt s = case s^.nextChapter of
-  Just (expiry,next) | dt > expiry -> readStory dt next
-  _ -> readFuture dt (s^.initialModel)
-
 --domainsIntersect :: (Applicative q, Foldable q, Metric q, Ord a, Floating a) => q a -> PhysDomain q a -> q a -> PhysDomain q a -> Bool
 --domainsIntersect offA (AABBDomain lowA highA) offB (AABBDomain lowB highB) = vecBelow (lowA ^+^ offA) (offB ^+^ highB) || vecBelow (lowB ^+^ offB) (offA ^+^ highA)
 --domainsIntersect offA (SphereDomain rA) offB (SphereDomain rB) = distance offA offB < rA + rB
@@ -88,14 +76,14 @@ vecBelow :: (Applicative q, Foldable q, Ord a) => q a -> q a -> Bool
 vecBelow a b = and $ (<) <$> a <*> b
 
 timeOfIntersection :: (Foldable q, Applicative q, Show a, Ord a, Floating a, Metric q) => PhysFuture q a -> PhysFuture q a -> Maybe a
-timeOfIntersection fa fb = rectifyQuads . toList $ intervalOfIntersection fa fb
+timeOfIntersection fa fb = fmap (rectifyQuads . toList) . transpose $ intervalOfIntersection fa fb
 
 maybeMin :: Ord a => V2 (Maybe a) -> Maybe a
 maybeMin (V2 (Just a) (Just b)) = Just $ min a b
 maybeMin (V2 (Just a) _) = Just a
 maybeMin (V2 _ x) = x
 
-intervalOfIntersection :: (Foldable q, Applicative q, Show a, Ord a, Floating a, Metric q) => PhysFuture q a -> PhysFuture q a -> q (Quad a,V2 a)
+intervalOfIntersection :: (Foldable q, Applicative q, Show a, Ord a, Floating a, Metric q) => PhysFuture q a -> PhysFuture q a -> q (V2 (V3 a))
 intervalOfIntersection fa fb = soln 
   <$> fa^.appliedForce
   <*> fb^.appliedForce
@@ -108,10 +96,10 @@ intervalOfIntersection fa fb = soln
   where
     (AABBDomain qA) = fa^.presentModel.physDomain
     (AABBDomain qB) = fb^.presentModel.physDomain
-    soln aA' aB' vA' vB' xA' xB' qA' qB' = (V3 (xB' - xA') (vB' - vA') ((aB' - aA')/2),V2 (-qB') qA')
+    soln aA' aB' vA' vB' xA' xB' qA' qB' = V2 (V3 ((aB' - aA')/2) (vB' - vA') (xB' - xA' - qA')) (V3 ((aA' - aB')/2) (vA' - vB') (xA' - xB' - qB'))
 
 quadLowerBound :: (Ord a,Floating a,Show a) => a -> a -> a -> Maybe a
-quadLowerBound a b c = if a == 0
+quadLowerBound a b c = traceShow (a,b,c) $ if a == 0
   then if b == 0
     then if c < 0
       then Just 0 -- Constantly colliding
@@ -151,7 +139,6 @@ multSign Zero = const Zero
 paritySign :: Integral a => a -> Sign
 paritySign a = if odd a then Minus else Plus
 
-{-
 polyLeftSign :: (Ord a, Num a, Eq a) => [a] -> Sign
 polyLeftSign xs = case cleanPoly of
   [] -> Zero -- Was actually zero
@@ -159,48 +146,26 @@ polyLeftSign xs = case cleanPoly of
   where
     order = length cleanPoly - 1
     cleanPoly = dropWhile (== 0) xs -- Poly with no leading zeros
--}
 
-quadLeftSign :: (Num a, Ord a) => Quad a -> Sign
-quadLeftSign (V3 c b a) = case signOf a of
-  Zero -> case signOf b of
-    Zero -> signOf c
-    x -> x
-  x -> x
-
-quadOddRoots :: (Show a, Ord a, Floating a) => Quad a -> [a]
-quadOddRoots (V3 c b a) = case signOf det of
+quadOddRoots :: (Show a, Ord a, Floating a) => V3 a -> [a]
+quadOddRoots (V3 a b c) = traceShow (a,b,c) $ case signOf det of
   Plus -> case signOf a of
     Plus -> [(-b - sqrt det)/(2 * a),(-b + sqrt det)/(2 * a)]
     Minus -> [(-b + sqrt det)/(2 * a),(-b - sqrt det)/(2 * a)]
-    Zero -> linOddRoots c b -- Was actually linear
+    Zero -> linOddRoots b c -- Was actually linear
   _ -> [] -- Either no roots, or only an even one
   where
     det = b * b - 4 * a * c
 
-evalQuad :: Num a => a -> Quad a -> a
-evalQuad x (V3 c b a) = a * x * x + b * x + c
+evalPoly :: Num a => a -> V3 a -> a
+evalPoly x (V3 a b c) = a * x * x + b * x + c
 
-rectifyQuads :: (Show a, Ord a, Floating a) => [(Quad a, V2 a)] -> Maybe a
-rectifyQuads qs = safeHead . dropWhile (not . condition) $ mergedRoots
+rectifyQuads :: (Show a, Ord a, Floating a) => [V3 a] -> Maybe a
+rectifyQuads qs = safeHead . dropWhile (\x -> not . all (<= 0) $ fmap (evalPoly x) qs) $ roots
   where
-    --initSigns = fmap quadLefSign qs
-    --roots = snd . foldr (\xs (n,l) -> (n + 1,merge l n xs)) (0,[]) . fmap (clampToZero False) . traceShowId $ allRoots
-    condition x = and $ fmap (\(q,V2 low high) -> let e = evalQuad x q in e <= high && low <= e) qs
-    zqs = concatMap (\(q,V2 low high) -> [q ^-^ V3 low 0 0,q ^-^ V3 high 0 0]) $ qs
-    allRoots = fmap quadOddRoots zqs
-    mergedRoots = dropWhile (< 0) . foldr merge [] $ allRoots
-
-safeHead :: [a] -> Maybe a
-safeHead [] = Nothing
-safeHead (x:_) = Just x
-
-clampToZero :: (Ord a, Num a) => Bool -> [a] -> [a]
-clampToZero b (x:xs) = if x < 0 then clampToZero True xs else (if b then (0:xs) else xs)
-clampToZero _ [] = [0]
-
-catMaybes :: [Maybe a] -> [a]
-catMaybes = map (\(Just x) -> x) . filter (\x -> case x of {Just _ -> True; Nothing -> False})
+    roots = foldr merge [] $ fmap quadOddRoots qs
+    safeHead [] = Nothing
+    safeHead (x:_) = Just x
 
 flipsBefore :: Ord a => a -> [a] -> Sign
 flipsBefore t (x:xs) = if t >= x
@@ -211,21 +176,13 @@ flipsBefore _ [] = Plus
 merge :: Ord a => [a] -> [a] -> [a]
 merge xs [] = xs
 merge [] ys = ys
-merge (x:xs) (y:ys)
+merge (x:xs) (y:ys) 
   | (x <= y)  = x:(merge xs (y:ys)) 
   | otherwise = y:(merge (x:xs) ys)
 
-type Quad = V3
-
-getBoundedQuads :: Num a => Quad a -> V2 a -> V2 (Quad a)
-getBoundedQuads p bounds = (^+^ p) . constantQuad . negate <$> bounds
-
-constantQuad :: Num a => a -> Quad a
-constantQuad x = V3 x 0 0
-
 -- bx + c = 0 => x = -c/b
 linOddRoots :: (Eq a, Fractional a) => a -> a -> [a]
-linOddRoots c b = if b == 0 then [] else [-c/b]
+linOddRoots b c = if b == 0 then [] else [-c/b]
 
 turningPoint :: (Metric q, Floating a) => PhysFuture q a -> a
 turningPoint f = norm (f^.presentModel.currentVelocity) / norm (f^.appliedForce)
@@ -234,8 +191,8 @@ objAtZero :: PhysFuture V3 Float
 objAtZero = PhysFuture
   {_appliedForce = zero
   ,_presentModel = PhysModel
-    {_physDomain = AABBDomain (V3 2 1 2)
-    ,_currentOrigin = V3 0 (-1) 0
+    {_physDomain = AABBDomain (V3 2 2 2)
+    ,_currentOrigin = V3 (-1) (-1) (-1)
     ,_currentVelocity = zero
     ,_currentOrientation = axisAngle (V3 0 0 (-1)) 0
     }
@@ -245,8 +202,8 @@ objFalling :: PhysFuture V3 Float
 objFalling = PhysFuture
   {_appliedForce = V3 0 (-1) 0
   ,_presentModel = PhysModel
-    {_physDomain = AABBDomain (V3 1 1 1)
-    ,_currentOrigin = V3 0 20 0
+    {_physDomain = AABBDomain (V3 2 2 2)
+    ,_currentOrigin = V3 (-1) 5 (-1)
     ,_currentVelocity = zero
     ,_currentOrientation = axisAngle (V3 0 0 (-1)) 0
     }
@@ -284,4 +241,3 @@ normalResponse mover kicker = normalize kickNormal ^* norm dv
   where
     dv = mover^.currentVelocity ^-^ kicker^.currentVelocity
     kickNormal = (mover^.currentOrigin ^+^ mover^.physDomain.to domainCenter) ^-^ (kicker^.currentOrigin ^+^ kicker^.physDomain.to domainCenter)
-

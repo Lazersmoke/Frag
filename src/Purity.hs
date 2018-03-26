@@ -21,9 +21,10 @@ import Purity.Render
 import Purity.Data
 
 data Presence q a = Presence
-  {visiblePresence :: DrawModel
-  ,physicalPresence :: PhysModel q a
+  {_visiblePresence :: DrawModel
+  ,_physicalPresence :: PhysModel q a
   }
+makeLenses ''Presence
 
 -- | A type encapsulating all state in purity
 data PurityState = PurityState
@@ -55,7 +56,7 @@ instance Show PurityState where
     " | Light Position: " ++ s^.lightPosition.to show ++ "}"
 
 aabbContaining :: RenderModel -> PhysDomain V3 GLfloat
-aabbContaining rm = AABB (minimum <$> trans) (maximum <$> trans)
+aabbContaining rm = AABBDomain ((maximum <$> trans) ^-^ (minimum <$> trans))
   where
     trans = sequenceA (modelVerticies rm)
 
@@ -63,57 +64,56 @@ aabbContaining rm = AABB (minimum <$> trans) (maximum <$> trans)
 purityMain :: IO ()
 purityMain = do
   _ <- Concurrent.forkIO (() <$ loggingThread)
-  logTag . ("Using GLFW version " ++) . show =<< GLFW.getVersion
-  logTag "Initializing GLFW... "
+  logInfo . ("Using GLFW version " ++) . show =<< GLFW.getVersion
+  logInfo "Initializing GLFW... "
   GLFW.init >>= \case
     True -> do
-      logTag $ green "Success!"
-      logTag "Hinting GLFW: {Samples -> 4, OpenGL -> Forward Compatible 3.3 Core}"
+      logInfo $ green "Success!"
+      logInfo "Hinting GLFW: {Samples -> 4, OpenGL -> Forward Compatible 3.3 Core}"
       GLFW.windowHint $ GLFW.WindowHint'Samples 4
       GLFW.windowHint $ GLFW.WindowHint'ContextVersionMajor 3
       GLFW.windowHint $ GLFW.WindowHint'ContextVersionMinor 3
       GLFW.windowHint $ GLFW.WindowHint'OpenGLForwardCompat True
       GLFW.windowHint $ GLFW.WindowHint'OpenGLProfile GLFW.OpenGLProfile'Core
-      logTag "Creating fullscreen 1024x768 window... "
+      logInfo "Creating 1024x768 window... "
       let
         windowX = 1024
         windowY = 768
       GLFW.createWindow windowX windowY "Purity" Nothing Nothing >>= \case
         Nothing -> do
-          logTag $ red "Failure!"
+          logInfo $ red "Failure!"
           GLFW.terminate
         Just theWindow -> do
-          logTag $ green "Success!"
-          logTag "Making the window the current context..."
+          logInfo $ green "Success!"
+          logInfo "Making the window the current context..."
           GLFW.makeContextCurrent (Just theWindow)
-          logTag "Setting keyboard input mode so we can get events..."
+          logInfo "Setting keyboard input mode so we can get events..."
           GLFW.setStickyKeysInputMode theWindow GLFW.StickyKeysInputMode'Enabled
-          logTag "Setting mouse input mode so it doesn't move outside the window..."
+          logInfo "Setting mouse input mode so it doesn't move outside the window..."
           --GLFW.setCursorInputMode theWindow GLFW.CursorInputMode'Disabled
-          logTag "Polling events once to get things started..."
+          logInfo "Polling events once to get things started..."
           GLFW.pollEvents
-          logTag "Setting mouse to center screen..."
+          logInfo "Setting mouse to center screen..."
           --GLFW.setCursorPos theWindow (fromIntegral windowX/2) (fromIntegral windowY/2)
-          logTag "Initializing OpenGL..."
+          logInfo "Initializing OpenGL..."
           openGLInfo <- initGL
-          logTag "Adding Teapot..."
+          logInfo "Adding Teapot..."
           rmTeapot <- initModel "normalTeapot.obj"
           let 
-           teapot = Presence
-            {visiblePresence = loadedModel rmTeapot
-            ,physicalPresence = PhysModel
-              {_physDomain = aabbContaining rmTeapot
-              ,_currentVelocity = V3 1 5 0
-              ,_currentOrigin = V3 0 0 0
-              ,_currentOrientation = axisAngle (V3 0 0 (-1)) 0
+            teapotOne = Presence
+              {_visiblePresence = loadedModel rmTeapot
+              ,_physicalPresence = PhysModel
+                {_physDomain = aabbContaining rmTeapot
+                ,_currentVelocity = V3 1 5 0
+                ,_currentOrigin = V3 0 0 0
+                ,_currentOrientation = axisAngle (V3 0 0 (-1)) 0
+                }
               }
-            }
-          logTag "Entering render loop..."
+            teapotTwo = physicalPresence %~ (currentVelocity .~ V3 0 5 1) $ teapotOne
+          logInfo "Entering render loop..."
           Just ft0 <- (fmap realToFrac) <$> GLFW.getTime
-          renderLoop ((presences .~ [teapot]) . (frameTimeInitial .~ ft0) . (frameTime .~ ft0) $ defaultPurityState) openGLInfo theWindow
-    False -> logTag "Failure!"
-  where
-    logTag = logStrTag "purityMain"
+          renderLoop ((presences .~ [teapotOne,teapotTwo]) . (frameTimeInitial .~ ft0) . (frameTime .~ ft0) $ defaultPurityState) openGLInfo theWindow
+    False -> logInfo "Failure!"
 
 
 -- | A loop that renders the scene until the program ends
@@ -121,26 +121,31 @@ renderLoop :: PurityState -> OpenGLInfo -> GLFW.Window -> IO ()
 renderLoop !state openGLInfo theWindow = do
   -- Compute updated physics models for this frame
   renderables <- forM (state^.presences) $ \pres -> do
-    let tea' = sampleModelForward (state^.frameTime - state^.frameTimeInitial) (V3 0 (-5) 0) (physicalPresence pres)
+    let 
+      tea' = worryAbout (state^.frameTime - state^.frameTimeInitial) objFalling objAtZero
+        {-_presentModel = (pres^.physicalPresence)
+        ,_appliedForce = (V3 0 (-1) 0)
+        -}
+    logInfo $ "Teapot is at: " ++ show (tea'^.currentOrigin)
     pure RenderSpec
       {modelMatrix = mkTransformation (tea'^.currentOrientation) (tea'^.currentOrigin)
       ,viewMatrix = inv44 $ lookIn (state^.cameraPosition) (state^.cameraForward)
       ,projMatrix = perspective (45 * pi/180) (4/3) 0.1 100
       ,lightPos = state^.lightPosition
-      ,modelToRender = visiblePresence pres
+      ,modelToRender = pres^.visiblePresence
       }
 
   -- Render this frame
-  logTag "Drawing..."
+  logTick "Drawing..."
   draw openGLInfo renderables
-  logTag "Swapping buffers..."
+  logTick "Swapping buffers..."
   GLFW.swapBuffers theWindow
 
   -- Prepare for next frame
-  logTag "Polling events..."
+  logTick "Polling events..."
   GLFW.pollEvents
 
-  logTag  "Getting time..."
+  logTick  "Getting time..."
   Just ft <- (fmap realToFrac) <$> GLFW.getTime
   let
     dt = ft - state^.frameTime
@@ -162,7 +167,7 @@ renderLoop !state openGLInfo theWindow = do
     ty' = max (min ty (pi - currty)) (-currty)
     pitch = axisAngle right ty'
 
-  logTag $ "Read cursor at " ++ show (cx,cy) ++ " and noted the change was " ++ show (dx,dy) ++ " off from " ++ show (fromIntegral wx/2 :: Float,fromIntegral wy/2 :: Float) ++ " so used angles " ++ show (tx,ty)
+  logTick $ "Read cursor at " ++ show (cx,cy) ++ " and noted the change was " ++ show (dx,dy) ++ " off from " ++ show (fromIntegral wx/2 :: Float,fromIntegral wy/2 :: Float) ++ " so used angles " ++ show (tx,ty)
 
   -- Move player
   moveVec <- sum . zipWith (\v b -> if b then v else V3 0 0 0) [forward,-right,-forward,right,up,-up] . fmap (==GLFW.KeyState'Pressed) <$> mapM (GLFW.getKey theWindow) [GLFW.Key'W,GLFW.Key'A,GLFW.Key'S,GLFW.Key'D,GLFW.Key'Q,GLFW.Key'Z]
@@ -180,19 +185,17 @@ renderLoop !state openGLInfo theWindow = do
     -- Apply all updates
     state' = updateLight . updateForward . updateMove . (frameTime .~ ft) $ state
 
-  logTag $ "New state: " ++ show state'
+  logTick $ "New state: " ++ show state'
 
   GLFW.windowShouldClose theWindow >>= \case
     True -> do
-      logTag "We've been told to close the window, doing so..."
+      logInfo "We've been told to close the window, doing so..."
       GLFW.destroyWindow theWindow
     False -> GLFW.getKey theWindow GLFW.Key'Escape >>= \case
       GLFW.KeyState'Pressed -> do
-        logTag "Escape key was pressed, closing window"
+        logInfo "Escape key was pressed, closing window"
         GLFW.destroyWindow theWindow
-      _ -> Concurrent.threadDelay 1000 *> if not handBrake then renderLoop state' openGLInfo theWindow else logTag "Hard braking"
-  where
-    logTag = logStrTag "renderLoop"
+      _ -> Concurrent.threadDelay 1000 *> if not handBrake then renderLoop state' openGLInfo theWindow else logInfo "Hard braking"
 
 handBrake :: Bool
 handBrake = False
@@ -200,31 +203,31 @@ handBrake = False
 -- | Initialize OpenGL, returning the rendering context
 initGL :: IO OpenGLInfo
 initGL = do
-  logTag "Setting clear color to blue..."
+  logInfo "Setting clear color to blue..."
   glClearColor 0 0 4 0
 
-  logTag "Enabling depth testing..."
+  logInfo "Enabling depth testing..."
   glEnable GL_DEPTH_TEST
   glDepthFunc GL_LESS
 
-  logTag "Enabling back face culling..."
+  logInfo "Enabling back face culling..."
   glEnable GL_CULL_FACE
 
-  logTag "Loading Vertex Shader..."
+  logInfo "Loading Vertex Shader..."
   vShader <- loadShader GL_VERTEX_SHADER "vertexShader"
-  logTag "Loading Fragment Shader..."
+  logInfo "Loading Fragment Shader..."
   fShader <- loadShader GL_FRAGMENT_SHADER "fragmentShader"
 
-  logTag "Creating program..."
+  logInfo "Creating shader program..."
   programId <- glCreateProgram
 
   forM_ [("Vertex",vShader),("Fragment",fShader)] $ \(name,shader) -> do
-    logTag $ "Attaching " ++ name ++ " Shader..."
+    logInfo $ "Attaching " ++ name ++ " Shader..."
     glAttachShader programId shader
 
-  logTag "Linking program..."
+  logInfo "Linking shader program..."
   glLinkProgram programId
-  logTag "Checking program..."
+  logInfo "Checking shader program..."
   (status,logLength) <- alloca $ \result -> do
     glGetProgramiv programId GL_LINK_STATUS result
     status <- peek result
@@ -232,16 +235,16 @@ initGL = do
     logLength <- peek result
     pure (status,logLength)
   let success = fromIntegral status == GL_TRUE
-  logTag $ "link status was " ++ (if success then green else red) (show status)
+  logInfo $ "link status was " ++ (if success then green else red) (show status)
   logMessage <- allocaArray (fromIntegral logLength + 1) $ \msg -> glGetProgramInfoLog programId (fromIntegral logLength) nullPtr msg >> peekCStringLen (msg,fromIntegral logLength)
-  logTag $ "Program linking log:"
-  logTag logMessage
+  logInfo $ "Program linking log:"
+  logInfo logMessage
   when (not success) exitFailure
 
   forM_ [("Vertex",vShader),("Fragment",fShader)] $ \(name,shader) -> do
-    logTag $ "Detaching " ++ name ++ " Shader..."
+    logInfo $ "Detaching " ++ name ++ " Shader..."
     glDetachShader programId shader
-    logTag $ "Deleting " ++ name ++ " Shader..."
+    logInfo $ "Deleting " ++ name ++ " Shader..."
     glDeleteShader shader
 
   [modelId,viewId,projectionId,lightId,textureSamplerId'] <- mapM (flip withCString (glGetUniformLocation programId)) ["Model","View","Projection","LightPosition","TextureSampler"]
@@ -254,8 +257,6 @@ initGL = do
     ,lightLocationId = lightId
     ,textureSamplerId = textureSamplerId'
     }
-  where
-    logTag = logStrTag "initGL"
 
 {-
 stdOrtho :: Mat.Matrix Double
@@ -275,14 +276,14 @@ lookIn eye forward = mkTransformation forward eye
 -- | Load a shader of the specified type from the specified file
 loadShader :: GLenum -> FilePath -> IO GLuint
 loadShader shaderType shaderPath = do
-  logTag $ "Creating " ++ shaderPath ++ "..."
+  logInfo $ "Creating " ++ shaderPath ++ "..."
   shaderId <- glCreateShader shaderType
-  logTag $ "Loading " ++ shaderPath ++ " source..."
+  logInfo $ "Loading " ++ shaderPath ++ " source..."
   shaderSource <- readFile shaderPath 
   withCString shaderSource (\cs -> new cs >>= \s -> glShaderSource shaderId 1 s nullPtr)
-  logTag $ "Compiling " ++ shaderPath ++ "..."
+  logInfo $ "Compiling " ++ shaderPath ++ "..."
   glCompileShader shaderId
-  logTag $ "Checking " ++ shaderPath ++ "..."
+  logInfo $ "Checking " ++ shaderPath ++ "..."
   (status,logLength) <- alloca $ \result -> do
     glGetShaderiv shaderId GL_COMPILE_STATUS result
     status <- peek result
@@ -290,27 +291,19 @@ loadShader shaderType shaderPath = do
     logLength <- peek result
     pure (status,logLength)
   let success = fromIntegral status == GL_TRUE
-  logTag $ "compile status was " ++ (if success then green else red) (show status)
+  logInfo $ "compile status was " ++ (if success then green else red) (show status)
   logMessage <- allocaArray (fromIntegral logLength + 1) $ \msg -> glGetShaderInfoLog shaderId (fromIntegral logLength) nullPtr msg >> peekCStringLen (msg,fromIntegral logLength)
-  logTag $ shaderPath ++ " compilation log:"
-  logTag logMessage
+  logInfo $ shaderPath ++ " compilation log:"
+  logInfo logMessage
   when (not success) exitFailure
   pure shaderId
-  where
-    logTag = logStrTag "loadShader"
 
 -- | Draw a frame
 draw :: OpenGLInfo -> [RenderSpec] -> IO ()
 draw glInfo@OpenGLInfo{..} models = do
-  logTag "Clearing screen..."
+  logTick "Clearing screen..."
   glClear $ GL_COLOR_BUFFER_BIT .|. GL_DEPTH_BUFFER_BIT
-  logTag "Using shader program..."
+  logTick "Using shader program..."
   glUseProgram shaderProgram
-  logTag "Rendering all models..."
+  logTick "Rendering all models..."
   forM_ models (drawModel glInfo)
-  {-forM_ attributeBuffers $ \(VertexAttribute{..}) -> do
-    logTag $ "Disabling vertex " ++ attributeName ++ " attribute..."
-    glDisableVertexAttribArray attributeIndex
-    -}
-  where
-    logTag = logStrTag "draw"
