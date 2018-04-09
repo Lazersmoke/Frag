@@ -22,7 +22,7 @@ import Purity.Data
 
 data Presence q a = Presence
   {_visiblePresence :: DrawModel
-  ,_physicalPresence :: PhysModel q a
+  ,_physicalPresence :: PhysStory q a
   }
 makeLenses ''Presence
 
@@ -59,6 +59,18 @@ aabbContaining :: ModelData -> PhysDomain V3 GLfloat
 aabbContaining md = AABBDomain ((maximum <$> trans) ^-^ (minimum <$> trans))
   where
     trans = sequenceA (modelVerticies md)
+
+wireframeAABB :: PhysDomain V3 GLfloat -> IO DrawModel
+wireframeAABB (AABBDomain (V3 x y z)) = initLines vs is
+  where
+    vs =
+      [V3 0 0 0,V3 0 0 z,V3 0 y 0,V3 0 y z
+      ,V3 x 0 0,V3 x 0 z,V3 x y 0,V3 x y z
+      ]
+    is =
+      [0,4,1,5,2,6,3,7
+      ,0,2,1,3,4,6,5,7
+      ,0,1,2,3,4,5,6,7]
 
 -- | The main entry point
 purityMain :: IO ()
@@ -98,21 +110,24 @@ purityMain = do
           logInfo "Initializing OpenGL..."
           openGLInfo <- initGL
           logInfo "Adding Teapot..."
-          (rmTeapot, teapotData) <- initModel "normalTeapot.obj"
+          --(_rmTeapot, teapotData) <- initModel "normalTeapot.obj"
+          let fallingAABB = AABBDomain (V3 1 1 1)
+          wirePot <- wireframeAABB fallingAABB
+          wireGround <- wireframeAABB $ objAtZero^.presentModel.physDomain
           let 
             teapotOne = Presence
-              {_visiblePresence = rmTeapot
-              ,_physicalPresence = PhysModel
-                {_physDomain = aabbContaining teapotData
-                ,_currentVelocity = V3 1 5 0
-                ,_currentOrigin = V3 0 0 0
-                ,_currentOrientation = axisAngle (V3 0 0 (-1)) 0
-                }
+              {_visiblePresence = wirePot
+              ,_physicalPresence = singleChapter . gravityFuture . domainAtRest (V3 1 5 0) $ fallingAABB
               }
-            teapotTwo = physicalPresence %~ (currentVelocity .~ V3 0 5 1) $ teapotOne
+            teapotTwo = physicalPresence %~ (spliceBump 0.5 (V3 0 3 0)) $ teapotOne
+            groundCube = Presence
+              {_visiblePresence = wireGround
+              ,_physicalPresence = singleChapter objAtZero
+              }
+            considerGround = physicalPresence %~ collideWith objAtZero
           logInfo "Entering render loop..."
           Just ft0 <- (fmap realToFrac) <$> GLFW.getTime
-          renderLoop ((presences .~ [teapotOne,teapotTwo]) . (frameTimeInitial .~ ft0) . (frameTime .~ ft0) $ defaultPurityState) openGLInfo theWindow
+          renderLoop ((presences .~ [groundCube, considerGround teapotOne,considerGround teapotTwo]) . (frameTimeInitial .~ ft0) . (frameTime .~ ft0) $ defaultPurityState) openGLInfo theWindow
     False -> logInfo "Failure!"
 
 
@@ -122,7 +137,7 @@ renderLoop !state openGLInfo theWindow = do
   -- Compute updated physics models for this frame
   renderables <- forM (state^.presences) $ \pres -> do
     let 
-      tea' = readStory (state^.frameTime - state^.frameTimeInitial) $ segmentStoryOnCollision fallingStory objAtZero
+      tea' = readStory (state^.frameTime - state^.frameTimeInitial) $ pres^.physicalPresence
         {-_presentModel = (pres^.physicalPresence)
         ,_appliedForce = (V3 0 (-1) 0)
         -}

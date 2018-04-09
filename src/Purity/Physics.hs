@@ -4,6 +4,7 @@
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE ApplicativeDo #-}
 module Purity.Physics where
 
 import Linear
@@ -97,10 +98,8 @@ appendChapter expiry f s = case s^.expiryInfo of
 
 spliceBump :: (Additive q, Fractional a, Ord a) => a -> q a -> PhysStory q a -> PhysStory q a
 spliceBump t dv s = case s^.expiryInfo of
-  Just (expiry,next) -> if t > expiry
-    then expiryInfo .~ Just (expiry, spliceBump (t - expiry) dv next) $ s
-    else expiryInfo .~ Just (t, singleChapter . (presentModel.currentVelocity %~ (^+^ dv)) . seekFuture t $ s^.initialModel) $ s
-  Nothing -> s
+  Just (expiry,_) | t > expiry -> expiryInfo._Just._2 %~ spliceBump (t - expiry) dv $ s
+  _ -> expiryInfo .~ Just (t, singleChapter . (presentModel.currentVelocity %~ (^+^ dv)) . seekFuture t $ s^.initialModel) $ s
 
 --translateDomain :: (Num a, Additive q) => q a -> PhysDomain q a -> PhysDomain q a
 --translateDomain off (AABB low high) = AABB (low ^+^ off) (high ^+^ off)
@@ -155,6 +154,21 @@ intervalOfIntersection fa fb = soln
     (AABBDomain qA) = fa^.presentModel.physDomain
     (AABBDomain qB) = fb^.presentModel.physDomain
     soln aA' aB' vA' vB' xA' xB' qA' qB' = (V3 (xB' - xA') (vB' - vA') ((aB' - aA')/2),V2 (-qB') qA')
+
+eqsOfMotion :: (Foldable q, Applicative q, Show a, Ord a, Floating a, Metric q) => PhysFuture q a -> PhysFuture q a -> q (Quad a,V2 a)
+eqsOfMotion fa fb = do
+  aA <- fa^.appliedForce
+  aB <- fb^.appliedForce
+  vA <- fa^.presentModel.currentVelocity
+  vB <- fb^.presentModel.currentVelocity
+  xA <- fa^.presentModel.currentOrigin
+  xB <- fb^.presentModel.currentOrigin
+  qA' <- qA
+  qB' <- qB
+  pure (V3 (xB - xA) (vB - vA) ((aB - aA)/2),V2 (-qB') qA')
+  where
+    (AABBDomain qA) = fa^.presentModel.physDomain
+    (AABBDomain qB) = fb^.presentModel.physDomain
 
 quadLowerBound :: (Ord a,Floating a,Show a) => a -> a -> a -> Maybe a
 quadLowerBound a b c = if a == 0
@@ -275,6 +289,17 @@ linOddRoots c b = if b == 0 then [] else [-c/b]
 
 turningPoint :: (Metric q, Floating a) => PhysFuture q a -> a
 turningPoint f = norm (f^.presentModel.currentVelocity) / norm (f^.appliedForce)
+
+domainAtRest :: (Additive q, Epsilon a, Floating a) => q a -> PhysDomain q a -> PhysModel q a
+domainAtRest x0 dom = PhysModel
+  {_physDomain = dom
+  ,_currentOrigin = x0
+  ,_currentVelocity = zero
+  ,_currentOrientation = axisAngle (V3 0 0 (-1)) 0
+  }
+
+gravityFuture :: PhysModel V3 Float -> PhysFuture V3 Float
+gravityFuture = applyForce (V3 0 (-1) 0)
     
 objAtZero :: PhysFuture V3 Float
 objAtZero = PhysFuture
@@ -352,10 +377,18 @@ segmentStoryOnCollision st col = case st^.expiryInfo of
 collideWith :: (Floating a, Metric q, Epsilon a, Foldable q, Applicative q, Show a, Ord a) => PhysFuture q a -> PhysStory q a -> PhysStory q a
 collideWith col st = case timeOfIntersection (st^.initialModel) col of
   -- Perhaps we will collide in a later chapter
-  Nothing -> expiryInfo._Just %~ (\ei -> (_2 %~ collideWith (seekFuture (ei^._1) col)) ei) $ st
+  Nothing -> checkNextChapter
   Just cTime -> case st^.expiryInfo of
-    Nothing ->
-    Just (expiry,next) ->
+    Just (expiry,next) | cTime < expiry -> expiryInfo._Just .~ (cTime, PhysStory
+      {_initialModel = (presentModel %~ resultCollisionModel (readFuture cTime col)) . seekFuture cTime $ st^.initialModel
+      ,_expiryInfo = Just (expiry - cTime,next)}) $ st
+    Nothing -> expiryInfo .~ Just (cTime, singleChapter . (presentModel %~ resultCollisionModel (readFuture cTime col)) . seekFuture cTime $ st^.initialModel) $ st
+    _ -> checkNextChapter
+  where
+    checkNextChapter = expiryInfo._Just %~ (\(expiry,next) -> (expiry,collideWith (seekFuture expiry col) next)) $ st
+
+resultCollisionModel :: (Floating a, Epsilon a, Metric q) => PhysModel q a -> PhysModel q a -> PhysModel q a
+resultCollisionModel col move = currentVelocity %~ (^+^ normalResponse move col) $ move
 
 normalResponse :: (Floating a, Epsilon a, Metric q) => PhysModel q a -> PhysModel q a -> q a
 normalResponse mover kicker = normalize kickNormal ^* (norm dv * 1.6)

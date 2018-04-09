@@ -155,8 +155,37 @@ initModel modelPath = do
       }
     )
 
+initLines :: [V3 GLfloat] -> [GLushort] -> IO DrawModel
+initLines verts indexData = do
+  logInfo "Generating Vertex Array Object Name..."
+  vao <- alloca $ \namePtr -> do
+    glGenVertexArrays 1 namePtr
+    peek namePtr
+  logInfo $ "Vertex Array Object: " ++ show vao
+
+  logInfo "Generating Vertex Buffer Names..."
+  [vbo,ibo] <- alloca $ \namePtr -> glGenBuffers 2 namePtr *> peekArray 2 namePtr
+  logInfo $ "  Vertex buffer: " ++ show vbo
+  logInfo $ "  Index buffer: " ++ show ibo
+
+  logInfo "Binding VAO..."
+  glBindVertexArray vao
+
+  let lineAttr@VertexAttribute{..} = VertexAttribute "line vertex" vbo 0 3 GL_FLOAT GL_FALSE 0 nullPtr
+
+  bufferGLData attributeName attributeObjectName GL_ARRAY_BUFFER verts
+  initGLAttr lineAttr
+
+  bufferGLData "index" ibo GL_ELEMENT_ARRAY_BUFFER indexData
+  pure DrawModel
+    {vaoName = vao
+    ,indexCount = fromIntegral $ length indexData
+    ,primitiveType = GL_LINES
+    ,elementType = GL_UNSIGNED_SHORT
+    }
+
 loadVertexAttr :: (Show q, Storable q) => Wavefront.WavefrontOBJ -> (Wavefront.WavefrontOBJ -> Vector.Vector e) -> (e -> q) -> VertexAttribute -> IO (Maybe [q])
-loadVertexAttr model exElems toVec attr@(VertexAttribute{..}) = do
+loadVertexAttr model exElems toVec attr@VertexAttribute{..} = do
   let vecs = fmap toVec . Vector.toList . exElems $ model
   if null vecs
     then pure Nothing
