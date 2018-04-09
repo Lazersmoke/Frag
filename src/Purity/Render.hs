@@ -10,7 +10,6 @@ module Purity.Render where
 
 import Linear
 import Graphics.GL.Core45
-import Control.Monad
 import qualified Codec.Wavefront as Wavefront
 import qualified Data.Vector as Vector
 import qualified Data.Vector.Storable as Storable
@@ -20,9 +19,8 @@ import Foreign hiding (rotate)
 
 import Purity.Data
 
-data RenderModel = RenderModel
-  {loadedModel :: DrawModel
-  ,modelVerticies :: [V3 GLfloat]
+data ModelData = ModelData
+  {modelVerticies :: [V3 GLfloat]
   ,modelTexCoords :: Maybe [V2 GLfloat]
   ,modelNormals :: Maybe [V3 GLfloat]
   ,modelIndicies :: [V3 GLushort]
@@ -31,18 +29,25 @@ data RenderModel = RenderModel
 data DrawModel = DrawModel
   {indexCount :: GLsizei
   ,vaoName :: GLuint
+  ,primitiveType :: GLenum
+  ,elementType :: GLenum
   }
 
 -- | The per-model information needed to render
 data RenderSpec = RenderSpec
   {modelMatrix :: M44 GLfloat
-  ,viewMatrix :: M44 GLfloat
-  ,projMatrix :: M44 GLfloat
-  ,lightPos :: V3 GLfloat
   ,modelToRender :: DrawModel
   }
 
+-- | The per-frame information needed to render
+data RenderContext = RenderContext
+  {viewMatrix :: M44 GLfloat
+  ,projMatrix :: M44 GLfloat
+  ,lightPos :: V3 GLfloat
+  }
+
 -- | All the context that must be passed from OpenGL initialization to the renderer
+-- This information is per-program-run
 data OpenGLInfo = OpenGLInfo
   {shaderProgram :: GLuint
   ,modelMatrixId :: GLint
@@ -56,24 +61,13 @@ data OpenGLInfo = OpenGLInfo
 prettyMatrix :: (Foldable f, Foldable g, Show a) => f (g a) -> String
 prettyMatrix = (++"\n") . foldMap ((++"\n") . foldMap ((++" \t") . show))
 
-drawModel :: OpenGLInfo -> RenderSpec -> IO ()
-drawModel OpenGLInfo{..} RenderSpec{..} = do
-  forM_ [("Model",modelMatrixId,modelMatrix),("View",viewMatrixId,viewMatrix),("Projection",projectionMatrixId,projMatrix)] $ \(matName,matId,mat) -> do
-    logTick $ "Sending " ++ matName ++ " matrix..."
-    logTick $ prettyMatrix $ mat
-    with mat $ glUniformMatrix4fv matId 1 GL_TRUE . (castPtr :: Ptr (M44 GLfloat) -> Ptr GLfloat)
-
-  -- Send light position
-  logTick "Sending light position..."
-  with lightPos $ glUniform3fv lightLocationId 1 . castPtr
-
-  logTick "Unleashing texture sampler on unit 0..."
-  glUniform1i textureSamplerId 0
-
+drawModel :: OpenGLInfo -> RenderContext -> RenderSpec -> IO ()
+drawModel OpenGLInfo{..} RenderContext{..} RenderSpec{..} = do
+  sendMatrix "Model" modelMatrixId modelMatrix
   logTick "Binding VAO..."
   glBindVertexArray (vaoName modelToRender)
   logTick "Drawing triangles..."
-  glDrawElements GL_TRIANGLES (indexCount modelToRender) GL_UNSIGNED_SHORT nullPtr
+  glDrawElements (primitiveType modelToRender) (indexCount modelToRender) (elementType modelToRender) nullPtr
 
 -- | A prepared vertex attribute
 data VertexAttribute = VertexAttribute
@@ -88,7 +82,7 @@ data VertexAttribute = VertexAttribute
   }
 
 -- | Load a DrawModel from a file path to its obj
-initModel :: String -> IO RenderModel
+initModel :: String -> IO (DrawModel, ModelData)
 initModel modelPath = do
   logInfo "Generating Vertex Array Object Name..."
   vao <- alloca $ \namePtr -> do
@@ -146,13 +140,20 @@ initModel modelPath = do
 
   let indexData = fmap (fmap (fromIntegral . subtract 1 . Wavefront.faceLocIndex) . (\(Wavefront.Face a b c _fs) -> V3 a b c) . Wavefront.elValue) . Vector.toList . Wavefront.objFaces $ model
   bufferGLData "index" ibo GL_ELEMENT_ARRAY_BUFFER (indexData :: [V3 GLushort])
-  pure RenderModel 
-    {loadedModel = DrawModel {vaoName = vao,indexCount = fromIntegral $ length indexData * 3}
-    ,modelVerticies = pos
-    ,modelTexCoords = mTex
-    ,modelNormals = mNor
-    ,modelIndicies = indexData
-    }
+  pure
+    (DrawModel
+      {vaoName = vao
+      ,indexCount = fromIntegral $ length indexData * 3
+      ,primitiveType = GL_TRIANGLES
+      ,elementType = GL_UNSIGNED_SHORT
+      }
+    ,ModelData
+      {modelVerticies = pos
+      ,modelTexCoords = mTex
+      ,modelNormals = mNor
+      ,modelIndicies = indexData
+      }
+    )
 
 loadVertexAttr :: (Show q, Storable q) => Wavefront.WavefrontOBJ -> (Wavefront.WavefrontOBJ -> Vector.Vector e) -> (e -> q) -> VertexAttribute -> IO (Maybe [q])
 loadVertexAttr model exElems toVec attr@(VertexAttribute{..}) = do
@@ -183,4 +184,11 @@ initGLAttr (VertexAttribute{..}) = do
   logInfo $ "Defining vertex " ++ attributeName ++ " attribute attributes..."
   glVertexAttribPointer attributeIndex attributeSize attributeType attributeNormalized attributeStride attributeOffset
 
+sendMatrix :: String -> GLint -> M44 GLfloat -> IO ()
+sendMatrix matName matId mat = do
+  logTick $ "Sending " ++ matName ++ " matrix..."
+  logTick $ prettyMatrix $ mat
+  with mat $ glUniformMatrix4fv matId 1 GL_TRUE . (castPtr :: Ptr (M44 GLfloat) -> Ptr GLfloat)
 
+uncurry3 :: (a -> b -> c -> d) -> (a,b,c) -> d
+uncurry3 f (a,b,c) = f a b c

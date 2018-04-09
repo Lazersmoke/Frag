@@ -55,10 +55,10 @@ instance Show PurityState where
     " | Frame Time: " ++ s^.frameTime.to show ++
     " | Light Position: " ++ s^.lightPosition.to show ++ "}"
 
-aabbContaining :: RenderModel -> PhysDomain V3 GLfloat
-aabbContaining rm = AABBDomain ((maximum <$> trans) ^-^ (minimum <$> trans))
+aabbContaining :: ModelData -> PhysDomain V3 GLfloat
+aabbContaining md = AABBDomain ((maximum <$> trans) ^-^ (minimum <$> trans))
   where
-    trans = sequenceA (modelVerticies rm)
+    trans = sequenceA (modelVerticies md)
 
 -- | The main entry point
 purityMain :: IO ()
@@ -98,12 +98,12 @@ purityMain = do
           logInfo "Initializing OpenGL..."
           openGLInfo <- initGL
           logInfo "Adding Teapot..."
-          rmTeapot <- initModel "normalTeapot.obj"
+          (rmTeapot, teapotData) <- initModel "normalTeapot.obj"
           let 
             teapotOne = Presence
-              {_visiblePresence = loadedModel rmTeapot
+              {_visiblePresence = rmTeapot
               ,_physicalPresence = PhysModel
-                {_physDomain = aabbContaining rmTeapot
+                {_physDomain = aabbContaining teapotData
                 ,_currentVelocity = V3 1 5 0
                 ,_currentOrigin = V3 0 0 0
                 ,_currentOrientation = axisAngle (V3 0 0 (-1)) 0
@@ -122,22 +122,24 @@ renderLoop !state openGLInfo theWindow = do
   -- Compute updated physics models for this frame
   renderables <- forM (state^.presences) $ \pres -> do
     let 
-      tea' = worryAbout (state^.frameTime - state^.frameTimeInitial) objFalling objAtZero
+      tea' = readStory (state^.frameTime - state^.frameTimeInitial) $ segmentStoryOnCollision fallingStory objAtZero
         {-_presentModel = (pres^.physicalPresence)
         ,_appliedForce = (V3 0 (-1) 0)
         -}
     logInfo $ "Teapot is at: " ++ show (tea'^.currentOrigin)
     pure RenderSpec
       {modelMatrix = mkTransformation (tea'^.currentOrientation) (tea'^.currentOrigin)
-      ,viewMatrix = inv44 $ lookIn (state^.cameraPosition) (state^.cameraForward)
-      ,projMatrix = perspective (45 * pi/180) (4/3) 0.1 100
-      ,lightPos = state^.lightPosition
       ,modelToRender = pres^.visiblePresence
       }
+  rCtx <- pure RenderContext
+    {viewMatrix = inv44 $ lookIn (state^.cameraPosition) (state^.cameraForward)
+    ,projMatrix = perspective (45 * pi/180) (4/3) 0.1 100
+    ,lightPos = state^.lightPosition
+    }
 
   -- Render this frame
   logTick "Drawing..."
-  draw openGLInfo renderables
+  draw openGLInfo rCtx renderables
   logTick "Swapping buffers..."
   GLFW.swapBuffers theWindow
 
@@ -299,11 +301,22 @@ loadShader shaderType shaderPath = do
   pure shaderId
 
 -- | Draw a frame
-draw :: OpenGLInfo -> [RenderSpec] -> IO ()
-draw glInfo@OpenGLInfo{..} models = do
+draw :: OpenGLInfo -> RenderContext -> [RenderSpec] -> IO ()
+draw glInfo@OpenGLInfo{..} rCtx@RenderContext{..} models = do
   logTick "Clearing screen..."
   glClear $ GL_COLOR_BUFFER_BIT .|. GL_DEPTH_BUFFER_BIT
   logTick "Using shader program..."
   glUseProgram shaderProgram
+
+  forM_ [("View",viewMatrixId,viewMatrix),("Projection",projectionMatrixId,projMatrix)] $ uncurry3 sendMatrix
+
+  logTick "Sending light position..."
+  with lightPos $ glUniform3fv lightLocationId 1 . castPtr
+
+  logTick "Unleashing texture sampler on unit 0..."
+  glUniform1i textureSamplerId 0
+
+
   logTick "Rendering all models..."
-  forM_ models (drawModel glInfo)
+  forM_ models (drawModel glInfo rCtx)
+

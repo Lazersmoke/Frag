@@ -11,6 +11,7 @@ import Control.Lens
 import Control.Monad
 import Data.Foldable
 --import Debug.Trace
+import Purity.Data
 
 newtype Surface q a = Surface
   {_surfaceNormal :: q a -- Surface is at and normal to tip of vector
@@ -21,7 +22,7 @@ groundSurface :: Num a => Surface V3 a
 groundSurface = Surface (V3 0 1 0)
 
 data PhysDomain q a
-  = AABBDomain (q a)
+  = AABBDomain (q a) deriving Show
   -- | SphereDomain a
   -- Origin is lower edge
   -- Height then radius
@@ -43,18 +44,63 @@ data PhysModel q a = PhysModel
   }
 makeLenses ''PhysModel
 
+instance (Show a, Show (q a)) => Show (PhysModel q a) where
+  show model = "[" ++ green ("At: " ++ show (model^.currentOrigin)) ++ " | " ++ green ("Vel: " ++ show (model^.currentVelocity)) ++ " | Look: " ++ show (model^.currentOrientation) ++ " | Dom: " ++ show (model^.physDomain) ++ "]"
+
 data PhysFuture q a = PhysFuture
   {_presentModel :: PhysModel q a
   ,_appliedForce :: q a
   }
 makeLenses ''PhysFuture
 
+applyForce :: q a -> PhysModel q a -> PhysFuture q a
+applyForce f m = PhysFuture {_presentModel = m, _appliedForce = f}
+
+instance (Show a, Show (q a)) => Show (PhysFuture q a) where
+  show f = "{" ++ green ("Apply " ++ show (f^.appliedForce)) ++ " to " ++ show (f^.presentModel) ++ "}"
+
 data PhysStory q a = PhysStory
   {_initialModel :: PhysFuture q a
-  -- (expiryTime,nextChapter)
-  ,_nextChapter :: Maybe (a,PhysStory q a)
+  ,_expiryInfo :: Maybe (a,PhysStory q a)
   }
 makeLenses ''PhysStory
+
+expiryTime :: Traversal' (PhysStory q a) a
+expiryTime = expiryInfo._Just._1
+
+nextChapter :: Traversal' (PhysStory q a) (PhysStory q a)
+nextChapter = expiryInfo._Just._2
+
+data PhysDestiny q a = PhysDestiny
+  {_destinyTTL :: a
+  ,_destineddx :: q a
+  ,_destineddv :: q a
+  ,_destinedda :: q a
+  }
+makeLenses ''PhysDestiny
+
+instance (Show a, Show (q a)) => Show (PhysStory q a) where
+  show s = case s^.expiryInfo of
+    Nothing -> "Finally, " ++ show (s^.initialModel)
+    Just (expiry,next) -> "For " ++ red (show expiry) ++ " time " ++ show (s^.initialModel) ++ " then\n" ++ show next
+
+seekFuture :: (Additive q, Fractional a) => a -> PhysFuture q a -> PhysFuture q a
+seekFuture t f = presentModel .~ readFuture t f $ f
+
+singleChapter :: PhysFuture q a -> PhysStory q a
+singleChapter f = PhysStory {_initialModel = f,_expiryInfo = Nothing}
+
+appendChapter :: (Additive q, Fractional a) => a -> q a -> PhysStory q a -> PhysStory q a
+appendChapter expiry f s = case s^.expiryInfo of
+  Nothing -> expiryInfo .~ (Just (expiry, singleChapter . applyForce f . readFuture expiry $ s^.initialModel)) $ s
+  Just (eTime,next) -> appendChapter (expiry - eTime) f next
+
+spliceBump :: (Additive q, Fractional a, Ord a) => a -> q a -> PhysStory q a -> PhysStory q a
+spliceBump t dv s = case s^.expiryInfo of
+  Just (expiry,next) -> if t > expiry
+    then expiryInfo .~ Just (expiry, spliceBump (t - expiry) dv next) $ s
+    else expiryInfo .~ Just (t, singleChapter . (presentModel.currentVelocity %~ (^+^ dv)) . seekFuture t $ s^.initialModel) $ s
+  Nothing -> s
 
 --translateDomain :: (Num a, Additive q) => q a -> PhysDomain q a -> PhysDomain q a
 --translateDomain off (AABB low high) = AABB (low ^+^ off) (high ^+^ off)
@@ -72,8 +118,8 @@ readFuture dt f = updateVel . updatePos $ f^.presentModel
     updatePos = currentOrigin %~ (^+^ translationConstantAccel dt (f^.presentModel.currentVelocity) (f^.appliedForce))
 
 readStory :: (Fractional a, Additive q, Ord a) => a -> PhysStory q a -> PhysModel q a
-readStory dt s = case s^.nextChapter of
-  Just (expiry,next) | dt > expiry -> readStory dt next
+readStory dt s = case s^.expiryInfo of
+  Just (expiry,next) | dt > expiry -> readStory (dt - expiry) next
   _ -> readFuture dt (s^.initialModel)
 
 --domainsIntersect :: (Applicative q, Foldable q, Metric q, Ord a, Floating a) => q a -> PhysDomain q a -> q a -> PhysDomain q a -> Bool
@@ -252,6 +298,12 @@ objFalling = PhysFuture
     }
   }
 
+fallingStory :: PhysStory V3 Float
+fallingStory = PhysStory
+  {_initialModel = objFalling
+  ,_expiryInfo = Nothing
+  }
+
 objLeft :: PhysFuture V3 Float
 objLeft = PhysFuture
   {_appliedForce = V3 (-1) 0 0
@@ -277,10 +329,36 @@ objRight = PhysFuture
 worryAbout :: (Foldable q, Metric q, Applicative q, Show a, Ord a, Floating a, Epsilon a) => a -> PhysFuture q a -> PhysFuture q a -> PhysModel q a
 worryAbout dt fa fb = case mfilter (< dt) (timeOfIntersection fa fb) of
   Nothing -> readFuture dt fa
-  Just cTime -> readFuture (dt - cTime) PhysFuture {_presentModel = readFuture cTime fa, _appliedForce = fa^.appliedForce ^+^ normalResponse (readFuture cTime fa) (readFuture cTime fb)}
+  Just cTime -> readFuture (dt - cTime) . applyForce (fa^.appliedForce ^+^ normalResponse (readFuture cTime fa) (readFuture cTime fb)) $ readFuture cTime fa
+
+segmentStoryOnCollision :: (Floating a, Metric q, Epsilon a, Foldable q, Applicative q, Show a, Ord a) => PhysStory q a -> PhysFuture q a -> PhysStory q a
+segmentStoryOnCollision st col = case st^.expiryInfo of
+  Nothing -> case timeOfIntersection (st^.initialModel) col of
+    -- No collision in this, the last chapter of the story
+    Nothing -> st
+    Just cTime -> let atCol = readFuture cTime in st {_expiryInfo = Just (cTime,PhysStory
+      {_initialModel = presentModel .~ (currentVelocity %~ (^+^ normalResponse (atCol (st^.initialModel)) (atCol col)) $ atCol (st^.initialModel)) $ st^.initialModel
+      ,_expiryInfo = Nothing
+      })}
+  Just (splitTime, st') -> case timeOfIntersection (st^.initialModel) col of
+    -- Colliding during *this* chapter
+    Just cTime | cTime < splitTime -> let atCol = readFuture cTime in expiryInfo .~ Just (cTime,PhysStory
+      {_initialModel = presentModel .~ (currentVelocity %~ (^+^ normalResponse (atCol (st^.initialModel)) (atCol col)) $ atCol (st^.initialModel)) $ st^.initialModel
+      ,_expiryInfo = Just (splitTime - cTime, st')
+      }) $ st
+    -- Not colliding during this chapter, maybe later
+    _ -> st {_expiryInfo = Just (splitTime,segmentStoryOnCollision st' col)}
+
+collideWith :: (Floating a, Metric q, Epsilon a, Foldable q, Applicative q, Show a, Ord a) => PhysFuture q a -> PhysStory q a -> PhysStory q a
+collideWith col st = case timeOfIntersection (st^.initialModel) col of
+  -- Perhaps we will collide in a later chapter
+  Nothing -> expiryInfo._Just %~ (\ei -> (_2 %~ collideWith (seekFuture (ei^._1) col)) ei) $ st
+  Just cTime -> case st^.expiryInfo of
+    Nothing ->
+    Just (expiry,next) ->
 
 normalResponse :: (Floating a, Epsilon a, Metric q) => PhysModel q a -> PhysModel q a -> q a
-normalResponse mover kicker = normalize kickNormal ^* norm dv
+normalResponse mover kicker = normalize kickNormal ^* (norm dv * 1.6)
   where
     dv = mover^.currentVelocity ^-^ kicker^.currentVelocity
     kickNormal = (mover^.currentOrigin ^+^ mover^.physDomain.to domainCenter) ^-^ (kicker^.currentOrigin ^+^ kicker^.physDomain.to domainCenter)
