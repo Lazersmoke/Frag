@@ -39,7 +39,7 @@ makeLenses ''PurityState
 
 defaultPurityState :: PurityState
 defaultPurityState = PurityState
-  {_cameraPosition = V3 0 0 50
+  {_cameraPosition = V3 0 0 10
   ,_cameraForward = axisAngle (V3 0 0 (-1)) 0
   ,_frameTimeInitial = 0
   ,_frameTime = 0
@@ -108,24 +108,19 @@ purityMain = do
           logInfo "Setting mouse to center screen..."
           --GLFW.setCursorPos theWindow (fromIntegral windowX/2) (fromIntegral windowY/2)
           logInfo "Initializing OpenGL..."
-          modelShader <- initGL
-          textShader <- do
-            programId <- initShaderProgram "textVShader" "textFShader"
-            uniforms <- mapM (flip withCString (glGetUniformLocation programId)) ["projection","text","textColor"]
-            pure $ ShaderProgram
-                {shaderName = programId
-                ,shaderUniformNames = uniforms
-                }
+          initGL
+          textShader <- createShaderProgram "textVShader" "textFShader" ["projection","text","textColor"]
+          flatModelShader <- createShaderProgram "flatVertexShader" "flatFragmentShader" ["Model","View","Projection","LightPosition","FlatColor"]
+          texturedModelShader <- createShaderProgram "vertexShader" "fragmentShader" ["Model","View","Projection","LightPosition","TextureSampler"]
 
-          logInfo "Adding Teapot..."
-          --(rmTeapot, teapotData) <- initModel "normalTeapot.obj"
-          (rmArrow, _arrowData) <- initModel "arrow.obj"
+          --(rmTeapot, teapotData) <- initModel "normalTeapot.obj" "test.png"
+          (rmArrow, _arrowData) <- initFlatModel "unitzarrow.obj"
           let fallingAABB = AABBDomain (V3 1 1 1)
-          _wirePot <- wireframeAABB fallingAABB
+          wirePot <- wireframeAABB fallingAABB
           wireGround <- wireframeAABB $ objAtZero^.presentModel.physDomain
           let 
             teapotOne = Presence
-              {_visiblePresence = rmArrow --wirePot
+              {_visiblePresence = wirePot
               ,_physicalPresence = singleChapter . gravityFuture . domainAtRest (V3 1 5 0) $ fallingAABB
               }
             teapotTwo = physicalPresence %~ (spliceBump 0.5 (V3 0 3 0)) $ teapotOne
@@ -136,34 +131,51 @@ purityMain = do
             considerGround = physicalPresence %~ collideWith objAtZero
           logInfo "Entering render loop..."
           Just ft0 <- (fmap realToFrac) <$> GLFW.getTime
-          renderLoop ((presences .~ [groundCube, considerGround teapotOne,considerGround teapotTwo]) . (frameTimeInitial .~ ft0) . (frameTime .~ ft0) $ defaultPurityState) modelShader textShader theWindow
+          renderLoop ((presences .~ [groundCube, considerGround teapotOne,considerGround teapotTwo]) . (frameTimeInitial .~ ft0) . (frameTime .~ ft0) $ defaultPurityState) rmArrow flatModelShader texturedModelShader textShader theWindow
     False -> logInfo "Failure!"
 
 -- | A loop that renders the scene until the program ends
-renderLoop :: PurityState -> ShaderProgram -> ShaderProgram -> GLFW.Window -> IO ()
-renderLoop !state modelShader textShader theWindow = do
+renderLoop :: PurityState -> DrawModel -> ShaderProgram -> ShaderProgram -> ShaderProgram -> GLFW.Window -> IO ()
+renderLoop !state arrowDrawModel flatModelShader texturedModelShader textShader theWindow = do
   -- Compute updated physics models for this frame
-  _renderables <- forM (state^.presences) $ \pres -> do
-    let 
-      frameSpeed = 0.5
-      tea' = readStory (frameSpeed * (state^.frameTime - state^.frameTimeInitial)) $ pres^.physicalPresence
-        {-_presentModel = (pres^.physicalPresence)
-        ,_appliedForce = (V3 0 (-1) 0)
-        -}
-    logTick $ "Teapot is at: " ++ show (tea'^.currentOrigin)
-    logInfo $ "Story is: " ++ show (pres^.physicalPresence)
-    logInfo ""
-    pure RenderSpec
-      {modelMatrix = mkTransformation (tea'^.currentOrientation) (tea'^.currentOrigin)
+  let 
+    frameSpeed = 0.25
+    scaledt = frameSpeed * (state^.frameTime - state^.frameTimeInitial)
+    onThisFrame pres = readStory scaledt $ pres^.physicalPresence
+    renderedPhysModels = map onThisFrame (state^.presences)
+    texturedModels = map texturedModel (state^.presences)
+    texturedModel pres = RenderSpec
+      {modelMatrix = mkTransformation (onThisFrame pres^.currentOrientation) (onThisFrame pres^.currentOrigin)
       ,modelToRender = DrawIndexedModel $ pres^.visiblePresence
+      ,renderItemName = "PhysModel with " ++ show (onThisFrame pres)
       }
-  let
-    _viewMatrix = inv44 $ lookIn (state^.cameraPosition) (state^.cameraForward)
-    _projMatrix = perspective (45 * pi/180) (4/3 :: Double) 0.1 100
-    _lightPos = state^.lightPosition
-  drStr <- renderString (25,25) "This took me 4+ hours to get working" >>= \di -> pure RenderSpec
+    cameraSpinSpeed = 0.1
+    viewMatrix = lookAt (20 *^ (V3 (cos $ cameraSpinSpeed * scaledt) 0 (sin $ cameraSpinSpeed * scaledt))) (V3 0 0 0) (V3 0 1 0) --inv44 $ lookIn (state^.cameraPosition) (state^.cameraForward)
+    projMatrix = perspective (45 * pi/180) (4/3 :: GLfloat) 0.1 100
+    lightPos = state^.lightPosition
+    arrowModelDirection = V3 0 1 0
+    axisArrows = [arrowFromTo zero (V3 0 0 1),arrowFromTo zero (V3 0 1 0),arrowFromTo zero (V3 1 0 0)]
+    velocityArrows = map velocityArrow renderedPhysModels
+    velocityArrow m = arrowFromTo (m^.currentOrigin) ((m^.currentOrigin) ^+^ (m^.currentVelocity))
+    accelArrows = map accelArrow (state^.presences)
+    accelArrow p = arrowFromTo (onThisFrame p^.currentOrigin) ((onThisFrame p^.currentOrigin) ^+^ (p^.physicalPresence.initialModel.appliedForce))
+    arrowFromTo f t = RenderSpec
+      {modelMatrix = mkTransformationMat (fromQuaternion $ deltaQuat arrowModelDirection (normalize $ t - f)) f !*! (V4 (V4 1 0 0 0) (V4 0 (norm $ t - f) 0 0) (V4 0 0 1 0) (V4 0 0 0 1))
+      ,modelToRender = DrawIndexedModel arrowDrawModel
+      ,renderItemName = "Arrow from " ++ show f ++ " to " ++ show t
+      }
+    deltaQuat :: V3 GLfloat -> V3 GLfloat -> Quaternion GLfloat
+    deltaQuat a b = if nearZero $ a ^-^ b
+      then 1
+      else if nearZero $ a ^+^ b
+        then if nearZero $ cross a (V3 1 0 0)
+          then axisAngle (cross a (V3 0 1 0)) pi
+          else axisAngle (cross a (V3 1 0 0)) pi
+        else axisAngle (cross a b) (acos $ dot a b)
+  drStr <- renderString (25,25) (show $ state^.frameTime) >>= \di -> pure RenderSpec
     {modelMatrix = ortho 0 1024 0 768 (-1) 1
     ,modelToRender = di
+    ,renderItemName = "debug text"
     }
 
   -- Render this frame
@@ -171,34 +183,63 @@ renderLoop !state modelShader textShader theWindow = do
   logTick "Clearing screen..."
   glClear $ GL_COLOR_BUFFER_BIT .|. GL_DEPTH_BUFFER_BIT
 
-{-
-  logTick "Using model shader program..."
-  glUseProgram (shaderName modelShader)
+  do
+    logTick "Using textured model shader program..."
+    glUseProgram (shaderName texturedModelShader)
 
-  let [modelId,viewId,projectionId,lightLocationId,textureSamplerId] = shaderUniformNames modelShader
-  forM_ [("View",viewId,viewMatrix),("Projection",projectionId,projMatrix)] $ uncurry3 sendMatrix
+    let [modelId,viewId,projectionId,lightLocationId,textureSamplerId] = shaderUniformNames texturedModelShader
+    forM_ [("View",viewId,viewMatrix),("Projection",projectionId,projMatrix)] $ uncurry3 sendMatrix
 
-  logTick "Sending light position..."
-  with lightPos $ glUniform3fv lightLocationId 1 . castPtr
+    logTick "Sending light position..."
+    with lightPos $ glUniform3fv lightLocationId 1 . castPtr
 
-  logTick "Unleashing texture sampler on unit 0..."
-  glUniform1i textureSamplerId 0
+    logTick "Unleashing texture sampler on unit 0..."
+    glUniform1i textureSamplerId 0
 
-  logTick "Rendering all models..."
-  forM_ renderables (drawModel modelId)
--}
-  logTick "Using text shader program..."
-  glUseProgram (shaderName textShader)
+    logTick "Rendering all models..."
+    forM_ texturedModels (drawModel modelId)
 
-  let [textProj,textSampler,textColor] = shaderUniformNames textShader
+  do
+    logTick "Using flat model shader program..."
+    glUseProgram (shaderName flatModelShader)
 
-  logTick "Unleashing texture sampler on unit 0..."
-  glUniform1i textSampler 0
+    let [modelId,viewId,projectionId,lightLocationId,flatColor] = shaderUniformNames flatModelShader
+    forM_ [("View",viewId,viewMatrix),("Projection",projectionId,projMatrix)] $ uncurry3 sendMatrix
 
-  logTick "Sending text color..."
-  with (V3 1 0 0 :: V3 Float) $ glUniform3fv textColor 1 . castPtr
+    logTick "Sending light position..."
+    with lightPos $ glUniform3fv lightLocationId 1 . castPtr
 
-  drawModel textProj drStr
+    logTick "Sending axis arrow color..."
+    with (V3 1 0 1 :: V3 Float) $ glUniform3fv flatColor 1 . castPtr
+
+    logTick "Rendering axis arrows..."
+    forM_ axisArrows (drawModel modelId)
+
+    logTick "Sending velocity arrow color..."
+    with (V3 1 0 0 :: V3 Float) $ glUniform3fv flatColor 1 . castPtr
+
+    logTick "Rendering all velocity arrows..."
+    forM_ velocityArrows (drawModel modelId)
+
+    logTick "Sending acceleration arrow color..."
+    with (V3 0 1 0 :: V3 Float) $ glUniform3fv flatColor 1 . castPtr
+
+    logTick "Rendering all acceleration arrows..."
+    forM_ accelArrows (drawModel modelId)
+
+  do
+    logTick "Using text shader program..."
+    glUseProgram (shaderName textShader)
+
+    let [mvp,textSampler,textColor] = shaderUniformNames textShader
+
+    logTick "Unleashing texture sampler on unit 0..."
+    glUniform1i textSampler 0
+
+    logTick "Sending text color..."
+    with (V3 1 0 0 :: V3 Float) $ glUniform3fv textColor 1 . castPtr
+
+    drawModel mvp drStr
 
   logTick "Swapping buffers..."
   GLFW.swapBuffers theWindow
@@ -257,13 +298,13 @@ renderLoop !state modelShader textShader theWindow = do
       GLFW.KeyState'Pressed -> do
         logInfo "Escape key was pressed, closing window"
         GLFW.destroyWindow theWindow
-      _ -> Concurrent.threadDelay 1000 *> if not handBrake then renderLoop state' modelShader textShader theWindow else logInfo "Hard braking"
+      _ -> Concurrent.threadDelay 1000 *> if not handBrake then renderLoop state' arrowDrawModel flatModelShader texturedModelShader textShader theWindow else logInfo "Hard braking"
 
 handBrake :: Bool
 handBrake = False
 
--- | Initialize OpenGL, returning the rendering context
-initGL :: IO ShaderProgram
+-- | Initialize OpenGL
+initGL :: IO ()
 initGL = do
   logInfo "Setting clear color to blue..."
   glClearColor 0 0 4 0
@@ -275,17 +316,15 @@ initGL = do
   logInfo "Enabling back face culling..."
   glEnable GL_CULL_FACE
 
-  glEnable GL_BLEND
-  glBlendFunc GL_SRC_ALPHA GL_ONE_MINUS_SRC_ALPHA
-
-  programId <- initShaderProgram "vertexShader" "fragmentShader"
-  uniforms <- mapM (flip withCString (glGetUniformLocation programId)) ["Model","View","Projection","LightPosition","TextureSampler"]
-
+createShaderProgram :: FilePath -> FilePath -> [String] -> IO ShaderProgram
+createShaderProgram vShaderPath fShaderPath uniformNames = do
+  programId <- initShaderProgram vShaderPath fShaderPath
+  uniforms <- mapM (flip withCString (glGetUniformLocation programId)) uniformNames
   pure $ ShaderProgram
     {shaderName = programId
     ,shaderUniformNames = uniforms
     }
-
+  
 initShaderProgram :: FilePath -> FilePath -> IO GLuint
 initShaderProgram vShaderPath fShaderPath = do
   logInfo "Loading Vertex Shader..."

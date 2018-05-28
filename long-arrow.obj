@@ -1,7 +1,5 @@
-# Blender v2.79 (sub 0) OBJ File: 'arrow.blend1'
-# www.blender.org
-mtllib arrow.mtl
-o Cylinder
+#mtllib arrow.mtl
+#o Cylinder
 v 0.000000 -3.000000 -0.200000
 v 0.000000 3.000000 -0.200000
 v 0.039018 -3.000000 -0.196157
@@ -165,8 +163,8 @@ vn -0.5286 0.5528 -0.6441
 vn -0.3928 0.5528 -0.7349
 vn -0.2419 0.5528 -0.7974
 vn -0.0817 0.5528 -0.8293
-usemtl None
-s off
+#usemtl None
+#s off
 f 1//1 2//1 4//1 3//1
 f 3//2 4//2 6//2 5//2
 f 5//3 6//3 8//3 7//3

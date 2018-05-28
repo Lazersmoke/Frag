@@ -51,6 +51,7 @@ data DrawInstructions = DrawIndexedModel DrawModel | DrawDirectly (IO ())
 data RenderSpec = RenderSpec
   {modelMatrix :: M44 GLfloat
   ,modelToRender :: DrawInstructions
+  ,renderItemName :: String
   }
 
 -- | The per-frame information needed to render
@@ -85,14 +86,14 @@ drawModel modelMatrixId RenderSpec{..} = do
   sendMatrix "Model" modelMatrixId modelMatrix
   case modelToRender of
     DrawIndexedModel dm -> do
-      logTick "Binding VAO..."
+      logTick $ "Binding VAO for " ++ renderItemName ++ "..."
       glBindVertexArray (vaoName dm)
       case textureName dm of
         Just name -> do
           logTick $ "Using texture number " ++ show name ++ "..."
           glBindTexture GL_TEXTURE_2D name
         Nothing -> pure ()
-      logTick "Drawing triangles..."
+      logTick $ "Drawing triangles for " ++ renderItemName ++ "..."
       glDrawElements (primitiveType dm) (indexCount dm) (elementType dm) nullPtr
     DrawDirectly i -> i
 
@@ -108,17 +109,16 @@ data VertexAttribute = VertexAttribute
   ,attributeOffset :: Ptr Void
   }
 
--- | Load a DrawModel from a file path to its obj
-initModel :: String -> IO (DrawModel, ModelData)
-initModel modelPath = do
-  (vao,[vbo,tbo,nbo,ibo]) <- generateVertexNames ["Vertex","Texture coordinate","Normal","Index"]
-  logInfo "Generating texture name..."
+-- | Load a png texture from a file
+loadTexture :: FilePath -> IO GLuint
+loadTexture texturePath = do
+  logInfo $ "Generating texture name for " ++ texturePath ++ "..."
   textureId <- alloca $ \namePtr -> glGenTextures 1 namePtr *> peek namePtr
   logInfo "Binding texture..."
   glBindTexture GL_TEXTURE_2D textureId
 
-  logInfo "Loading texture juicily from file..."
-  Right dynImage <- Juicy.readPng "test.png"
+  logInfo $ "Loading texture juicily from file " ++ texturePath ++ "..."
+  Right dynImage <- Juicy.readPng texturePath
   let testTexture = Juicy.convertRGB8 dynImage
 
   logInfo "Sending texture to GL..."
@@ -139,18 +139,58 @@ initModel modelPath = do
   glTexParameteri GL_TEXTURE_2D GL_TEXTURE_MIN_FILTER (fromIntegral GL_LINEAR_MIPMAP_LINEAR)
   logInfo "Generating mipmaps..."
   glGenerateMipmap GL_TEXTURE_2D
+  pure textureId
 
+initFlatModel :: FilePath -> IO (DrawModel, ModelData)
+initFlatModel modelPath = do
+  logInfo $ "Initializing flat model " ++ modelPath ++ "..."
+  (vao,[vbo,nbo,ibo]) <- generateVertexNames ["Vertex","Normal","Index"]
   logInfo "Binding VAO..."
   glBindVertexArray vao
 
-  logInfo "Loading model..."
+  logInfo $ "Loading model " ++ modelPath ++ "..."
   model <- Wavefront.fromFile modelPath >>= \case
     Right m -> pure m
     Left e -> error e
 
-  logInfo "Buffering vertex attributes..."
+  logInfo $ "Buffering vertex attributes for " ++ modelPath ++ "..."
   Just pos <- loadVertexAttr @(V3 GLfloat) model Wavefront.objLocations (\(Wavefront.Location x y z _w) -> V3 x y z) (VertexAttribute "position" vbo 0 3 GL_FLOAT GL_FALSE 0 nullPtr)
-  mTex <- loadVertexAttr @(V2 GLfloat) model Wavefront.objTexCoords (\(Wavefront.TexCoord r s _t) -> V2 r s) (VertexAttribute "texture coordinate" tbo 1 2 GL_FLOAT GL_FALSE 0 nullPtr)
+  mNor <- loadVertexAttr @(V3 GLfloat) model Wavefront.objNormals (\(Wavefront.Normal x y z) -> V3 x y z) (VertexAttribute "normal" nbo 1 3 GL_FLOAT GL_FALSE 0 nullPtr)
+  let indexData = fmap (fmap (fromIntegral . subtract 1 . Wavefront.faceLocIndex) . (\(Wavefront.Face a b c _fs) -> V3 a b c) . Wavefront.elValue) . Vector.toList . Wavefront.objFaces $ model
+  bufferGLData "index" ibo GL_ELEMENT_ARRAY_BUFFER GL_STATIC_DRAW (indexData :: [V3 GLushort])
+  pure
+    (DrawModel
+      {vaoName = vao
+      ,indexCount = fromIntegral $ length indexData * 3
+      ,primitiveType = GL_TRIANGLES
+      ,elementType = GL_UNSIGNED_SHORT
+      ,textureName = Nothing
+      }
+    ,ModelData
+      {modelVerticies = pos
+      ,modelTexCoords = Nothing
+      ,modelNormals = mNor
+      ,modelIndicies = indexData
+      }
+    )
+
+-- | Load a DrawModel from a file path to its obj
+initTexturedModel :: FilePath -> FilePath -> IO (DrawModel, ModelData)
+initTexturedModel modelPath texturePath = do
+  logInfo $ "Initializing textured model " ++ modelPath ++ "..."
+  (vao,[vbo,tbo,nbo,ibo]) <- generateVertexNames ["Vertex","Texture coordinate","Normal","Index"]
+  textureId <- loadTexture texturePath
+  logInfo "Binding VAO..."
+  glBindVertexArray vao
+
+  logInfo $ "Loading model " ++ modelPath ++ "..."
+  model <- Wavefront.fromFile modelPath >>= \case
+    Right m -> pure m
+    Left e -> error e
+
+  logInfo $ "Buffering vertex attributes for " ++ modelPath ++ "..."
+  Just pos <- loadVertexAttr @(V3 GLfloat) model Wavefront.objLocations (\(Wavefront.Location x y z _w) -> V3 x y z) (VertexAttribute "position" vbo 0 3 GL_FLOAT GL_FALSE 0 nullPtr)
+  Just tex <- loadVertexAttr @(V2 GLfloat) model Wavefront.objTexCoords (\(Wavefront.TexCoord r s _t) -> V2 r s) (VertexAttribute "texture coordinate" tbo 1 2 GL_FLOAT GL_FALSE 0 nullPtr)
   mNor <- loadVertexAttr @(V3 GLfloat) model Wavefront.objNormals (\(Wavefront.Normal x y z) -> V3 x y z) (VertexAttribute "normal" nbo 2 3 GL_FLOAT GL_FALSE 0 nullPtr)
 
   let indexData = fmap (fmap (fromIntegral . subtract 1 . Wavefront.faceLocIndex) . (\(Wavefront.Face a b c _fs) -> V3 a b c) . Wavefront.elValue) . Vector.toList . Wavefront.objFaces $ model
@@ -165,7 +205,7 @@ initModel modelPath = do
       }
     ,ModelData
       {modelVerticies = pos
-      ,modelTexCoords = mTex
+      ,modelTexCoords = Just tex
       ,modelNormals = mNor
       ,modelIndicies = indexData
       }
@@ -225,6 +265,13 @@ bufferGLData name bufferName bufferType bufferHint bufferData = do
   withArray bufferData $ \bufferDataArray -> do
     glBufferData bufferType (fromIntegral $ length bufferData * sizeOf (undefined :: a)) bufferDataArray bufferHint
 
+setupEmptyBuffer :: String -> GLuint -> GLenum -> GLsizeiptr -> GLenum -> IO ()
+setupEmptyBuffer name bufferName bufferType bufferSize bufferHint = do
+  logInfo $ "Binding " ++ name ++ " buffer..."
+  glBindBuffer bufferType bufferName
+  logInfo $ "Initializing " ++ name ++ " buffer with " ++ show bufferSize ++ " bytes of empty data"
+  glBufferData bufferType bufferSize nullPtr bufferHint
+
 initGLAttr :: VertexAttribute -> IO ()
 initGLAttr (VertexAttribute{..}) = do
   logInfo $ "Enabling vertex " ++ attributeName ++ " attribute..."
@@ -253,7 +300,7 @@ data FreeTypeCharacter = FreeTypeCharacter
   {characterTextureName :: GLuint
   ,characterSize :: (FT.FT_Int,FT.FT_Int)
   ,characterBearing :: (FT.FT_Int,FT.FT_Int)
-  ,characterAdvance :: FT.FT_Int
+  ,characterAdvance :: FT.FT_Int -- ^ The advance in truncated full pixels (not 1/64ths)
   }
 
 {-# NOINLINE globalFTCache #-}
@@ -262,8 +309,8 @@ globalFTCache = unsafePerformIO $ newIORef Map.empty
 
 -- Load a FreeType character
 -- Adapted from: http://zyghost.com/articles/Haskell-font-rendering-with-freetype2-and-opengl.html
-loadCharacter :: FilePath -> Char -> Int -> IO FreeTypeCharacter
-loadCharacter path char px = Map.lookup (char,px) <$> readIORef globalFTCache >>= \case
+loadCharacter :: FilePath -> Int -> Char -> IO FreeTypeCharacter
+loadCharacter path px char = Map.lookup (char,px) <$> readIORef globalFTCache >>= \case
   Just ftc -> pure ftc
   Nothing -> do
     ft <- alloca $ \p -> do
@@ -343,6 +390,7 @@ loadCharacter path char px = Map.lookup (char,px) <$> readIORef globalFTCache >>
     modifyIORef globalFTCache $ Map.insert (char,px) ftc
     pure ftc
 
+-- | Generate the DrawInstructions for displaying the given string at the given location
 renderString :: (FT.FT_Int,FT.FT_Int) -> String -> IO DrawInstructions
 renderString origin str = do
   let size = 48
@@ -350,19 +398,20 @@ renderString origin str = do
   glBindVertexArray vao
   logInfo "Preloading string vbo with empty buffer..."
   let bufferSize = fromIntegral $ 4 * 6 * sizeOf (undefined :: GLfloat)
-  glBindBuffer GL_ARRAY_BUFFER vbo
-  glBufferData GL_ARRAY_BUFFER bufferSize nullPtr GL_DYNAMIC_DRAW
-  logInfo "Setting up text string attribute..."
-  glEnableVertexAttribArray 0
-  glBindBuffer GL_ARRAY_BUFFER vbo
-  glVertexAttribPointer 0 4 GL_FLOAT GL_FALSE (fromIntegral $ 4 * sizeOf (undefined :: GLfloat)) nullPtr
-  chars <- forM str $ \c -> loadCharacter "/usr/share/fonts/TTF/DejaVuSans.ttf" c size
-  let offsets = scanl (\c n -> c + (characterAdvance n)) (fst origin) chars
+  setupEmptyBuffer "vertex/texture coord" vbo GL_ARRAY_BUFFER bufferSize GL_DYNAMIC_DRAW
+  let vertAttr@VertexAttribute{..} = VertexAttribute "vertex/texture coord" vbo 0 4 GL_FLOAT GL_FALSE 0 nullPtr
+  initGLAttr vertAttr
+  chars <- forM str $ loadCharacter "/usr/share/fonts/TTF/DejaVuSans.ttf" size
+  -- Each character is moved forward by the characterAdvance of the previous character
+  let offsets = scanl (\c n -> c + (characterAdvance n)) 0 chars
   pure . DrawDirectly $ do
     glBindVertexArray vao
+    glEnable GL_BLEND
+    glBlendFunc GL_SRC_ALPHA GL_ONE_MINUS_SRC_ALPHA
+
     sequence_ . (\f -> zipWith f chars offsets) $ \FreeTypeCharacter{..} offset -> do
       let
-        xorg = fromIntegral $ offset + fst characterBearing
+        xorg = fromIntegral $ fst origin + offset + fst characterBearing
         yorg = fromIntegral $ snd origin - (snd characterSize - snd characterBearing)
         w = fromIntegral $ fst characterSize
         h = fromIntegral $ snd characterSize
@@ -374,9 +423,8 @@ renderString origin str = do
           ,V4 (xorg + w) yorg 1 1
           ,V4 (xorg + w) (yorg + h) 1 0
           ]
-      logInfo $ "Rendering character with verts: " ++ show verts
       glBindTexture GL_TEXTURE_2D characterTextureName
       glBindBuffer GL_ARRAY_BUFFER vbo
       withArray (verts :: [V4 GLfloat]) $ glBufferSubData GL_ARRAY_BUFFER 0 bufferSize
-      glBindBuffer GL_ARRAY_BUFFER 0
       glDrawArrays GL_TRIANGLES 0 6
+    glDisable GL_BLEND
