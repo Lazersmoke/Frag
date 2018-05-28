@@ -119,13 +119,13 @@ purityMain = do
 
           logInfo "Adding Teapot..."
           --(rmTeapot, teapotData) <- initModel "normalTeapot.obj"
-          --(rmArrow, teapotData) <- initModel "arrow.obj"
+          (rmArrow, _arrowData) <- initModel "arrow.obj"
           let fallingAABB = AABBDomain (V3 1 1 1)
-          wirePot <- wireframeAABB fallingAABB
+          _wirePot <- wireframeAABB fallingAABB
           wireGround <- wireframeAABB $ objAtZero^.presentModel.physDomain
           let 
             teapotOne = Presence
-              {_visiblePresence = wirePot
+              {_visiblePresence = rmArrow --wirePot
               ,_physicalPresence = singleChapter . gravityFuture . domainAtRest (V3 1 5 0) $ fallingAABB
               }
             teapotTwo = physicalPresence %~ (spliceBump 0.5 (V3 0 3 0)) $ teapotOne
@@ -143,7 +143,7 @@ purityMain = do
 renderLoop :: PurityState -> ShaderProgram -> ShaderProgram -> GLFW.Window -> IO ()
 renderLoop !state modelShader textShader theWindow = do
   -- Compute updated physics models for this frame
-  renderables <- forM (state^.presences) $ \pres -> do
+  _renderables <- forM (state^.presences) $ \pres -> do
     let 
       frameSpeed = 0.5
       tea' = readStory (frameSpeed * (state^.frameTime - state^.frameTimeInitial)) $ pres^.physicalPresence
@@ -158,10 +158,10 @@ renderLoop !state modelShader textShader theWindow = do
       ,modelToRender = DrawIndexedModel $ pres^.visiblePresence
       }
   let
-    viewMatrix = inv44 $ lookIn (state^.cameraPosition) (state^.cameraForward)
-    projMatrix = perspective (45 * pi/180) (4/3) 0.1 100
-    lightPos = state^.lightPosition
-  drStr <- renderString (25,25) (replicate 10 'a') >>= \di -> pure RenderSpec
+    _viewMatrix = inv44 $ lookIn (state^.cameraPosition) (state^.cameraForward)
+    _projMatrix = perspective (45 * pi/180) (4/3 :: Double) 0.1 100
+    _lightPos = state^.lightPosition
+  drStr <- renderString (25,25) "This took me 4+ hours to get working" >>= \di -> pure RenderSpec
     {modelMatrix = ortho 0 1024 0 768 (-1) 1
     ,modelToRender = di
     }
@@ -170,6 +170,8 @@ renderLoop !state modelShader textShader theWindow = do
   logTick "Drawing..."
   logTick "Clearing screen..."
   glClear $ GL_COLOR_BUFFER_BIT .|. GL_DEPTH_BUFFER_BIT
+
+{-
   logTick "Using model shader program..."
   glUseProgram (shaderName modelShader)
 
@@ -184,7 +186,7 @@ renderLoop !state modelShader textShader theWindow = do
 
   logTick "Rendering all models..."
   forM_ renderables (drawModel modelId)
-
+-}
   logTick "Using text shader program..."
   glUseProgram (shaderName textShader)
 
@@ -272,6 +274,9 @@ initGL = do
 
   logInfo "Enabling back face culling..."
   glEnable GL_CULL_FACE
+
+  glEnable GL_BLEND
+  glBlendFunc GL_SRC_ALPHA GL_ONE_MINUS_SRC_ALPHA
 
   programId <- initShaderProgram "vertexShader" "fragmentShader"
   uniforms <- mapM (flip withCString (glGetUniformLocation programId)) ["Model","View","Projection","LightPosition","TextureSampler"]

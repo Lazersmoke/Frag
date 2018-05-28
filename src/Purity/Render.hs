@@ -320,15 +320,7 @@ loadCharacter path char px = Map.lookup (char,px) <$> readIORef globalFTCache >>
       GL_RED -- stored format
       GL_UNSIGNED_BYTE -- size of color component
       (FT.buffer bmp)
-    logInfo "Character Demo:"
-    forM_ [0..h - 1] $ \r -> do
-      s <- forM [0..w - 1] $ \c -> do
-        (b :: Int8) <- peekByteOff (FT.buffer bmp) (fromIntegral $ c + r * w)
-        pure $ if b == 0
-          then ' '
-          else 'X'
-      logInfo $ "> " ++ s
-          
+         
     logInfo "Configuring mipmaps..."
     logInfo "  Magnify using linear filtering"
     glTexParameteri GL_TEXTURE_2D GL_TEXTURE_MAG_FILTER (fromIntegral GL_LINEAR)
@@ -358,9 +350,11 @@ renderString origin str = do
   glBindVertexArray vao
   logInfo "Preloading string vbo with empty buffer..."
   let bufferSize = fromIntegral $ 4 * 6 * sizeOf (undefined :: GLfloat)
+  glBindBuffer GL_ARRAY_BUFFER vbo
   glBufferData GL_ARRAY_BUFFER bufferSize nullPtr GL_DYNAMIC_DRAW
   logInfo "Setting up text string attribute..."
   glEnableVertexAttribArray 0
+  glBindBuffer GL_ARRAY_BUFFER vbo
   glVertexAttribPointer 0 4 GL_FLOAT GL_FALSE (fromIntegral $ 4 * sizeOf (undefined :: GLfloat)) nullPtr
   chars <- forM str $ \c -> loadCharacter "/usr/share/fonts/TTF/DejaVuSans.ttf" c size
   let offsets = scanl (\c n -> c + (characterAdvance n)) (fst origin) chars
