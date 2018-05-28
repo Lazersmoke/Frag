@@ -257,13 +257,13 @@ data FreeTypeCharacter = FreeTypeCharacter
   }
 
 {-# NOINLINE globalFTCache #-}
-globalFTCache :: IORef (Map.Map Char FreeTypeCharacter)
+globalFTCache :: IORef (Map.Map (Char,Int) FreeTypeCharacter)
 globalFTCache = unsafePerformIO $ newIORef Map.empty
 
 -- Load a FreeType character
 -- Adapted from: http://zyghost.com/articles/Haskell-font-rendering-with-freetype2-and-opengl.html
 loadCharacter :: FilePath -> Char -> Int -> IO FreeTypeCharacter
-loadCharacter path char px = Map.lookup char <$> readIORef globalFTCache >>= \case
+loadCharacter path char px = Map.lookup (char,px) <$> readIORef globalFTCache >>= \case
   Just ftc -> pure ftc
   Nothing -> do
     ft <- alloca $ \p -> do
@@ -280,6 +280,8 @@ loadCharacter path char px = Map.lookup char <$> readIORef globalFTCache >>= \ca
     -- Set the size
     runFreeType $ FT.ft_Set_Pixel_Sizes ff (fromIntegral px) 0
     logInfo $ "Set size " ++ show px ++ " for " ++ show char
+
+    glPixelStorei GL_UNPACK_ALIGNMENT 1
 
     -- Get the unicode character
     unicodeIndex <- FT.ft_Get_Char_Index ff $ fromIntegral $ fromEnum char
@@ -318,6 +320,15 @@ loadCharacter path char px = Map.lookup char <$> readIORef globalFTCache >>= \ca
       GL_RED -- stored format
       GL_UNSIGNED_BYTE -- size of color component
       (FT.buffer bmp)
+    logInfo "Character Demo:"
+    forM_ [0..h - 1] $ \r -> do
+      s <- forM [0..w - 1] $ \c -> do
+        (b :: Int8) <- peekByteOff (FT.buffer bmp) (fromIntegral $ c + r * w)
+        pure $ if b == 0
+          then ' '
+          else 'X'
+      logInfo $ "> " ++ s
+          
     logInfo "Configuring mipmaps..."
     logInfo "  Magnify using linear filtering"
     glTexParameteri GL_TEXTURE_2D GL_TEXTURE_MAG_FILTER (fromIntegral GL_LINEAR)
@@ -337,20 +348,21 @@ loadCharacter path char px = Map.lookup char <$> readIORef globalFTCache >>= \ca
         ,characterBearing = bearing
         ,characterAdvance = fromIntegral $ shiftR advance 6
         }
-    modifyIORef globalFTCache $ Map.insert char ftc
+    modifyIORef globalFTCache $ Map.insert (char,px) ftc
     pure ftc
 
 renderString :: (FT.FT_Int,FT.FT_Int) -> String -> IO DrawInstructions
 renderString origin str = do
-  let size = 10
+  let size = 48
   (vao,[vbo]) <- generateVertexNames ["Vertex"]
   glBindVertexArray vao
-  glEnableVertexAttribArray 0
-  glVertexAttribPointer 0 4 GL_FLOAT GL_FALSE (fromIntegral $ 4 * sizeOf (undefined :: GLfloat)) nullPtr
   logInfo "Preloading string vbo with empty buffer..."
   let bufferSize = fromIntegral $ 4 * 6 * sizeOf (undefined :: GLfloat)
   glBufferData GL_ARRAY_BUFFER bufferSize nullPtr GL_DYNAMIC_DRAW
-  chars <- forM str $ \c -> loadCharacter "/usr/share/fonts/noto-cjk/NotoSansCJK-Regular.ttc" c size
+  logInfo "Setting up text string attribute..."
+  glEnableVertexAttribArray 0
+  glVertexAttribPointer 0 4 GL_FLOAT GL_FALSE (fromIntegral $ 4 * sizeOf (undefined :: GLfloat)) nullPtr
+  chars <- forM str $ \c -> loadCharacter "/usr/share/fonts/TTF/DejaVuSans.ttf" c size
   let offsets = scanl (\c n -> c + (characterAdvance n)) (fst origin) chars
   pure . DrawDirectly $ do
     glBindVertexArray vao

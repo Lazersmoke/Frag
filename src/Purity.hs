@@ -161,7 +161,7 @@ renderLoop !state modelShader textShader theWindow = do
     viewMatrix = inv44 $ lookIn (state^.cameraPosition) (state^.cameraForward)
     projMatrix = perspective (45 * pi/180) (4/3) 0.1 100
     lightPos = state^.lightPosition
-  drStr <- renderString (25,25) (replicate 10000 'a') >>= \di -> pure RenderSpec
+  drStr <- renderString (25,25) (replicate 10 'a') >>= \di -> pure RenderSpec
     {modelMatrix = ortho 0 1024 0 768 (-1) 1
     ,modelToRender = di
     }
@@ -185,6 +185,7 @@ renderLoop !state modelShader textShader theWindow = do
   logTick "Rendering all models..."
   forM_ renderables (drawModel modelId)
 
+  logTick "Using text shader program..."
   glUseProgram (shaderName textShader)
 
   let [textProj,textSampler,textColor] = shaderUniformNames textShader
