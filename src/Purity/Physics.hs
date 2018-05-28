@@ -22,6 +22,7 @@ makeLenses ''Surface
 groundSurface :: Num a => Surface V3 a
 groundSurface = Surface (V3 0 1 0)
 
+-- A physical subset of q a describing the shape of our object
 data PhysDomain q a
   = AABBDomain (q a) deriving Show
   -- | SphereDomain a
@@ -37,6 +38,7 @@ domainVolume (AABBDomain size) = product size
 domainCenter :: (Floating a, Additive q) => PhysDomain q a -> q a
 domainCenter (AABBDomain size) = 0.5 *^ size
 
+-- A description of our object's velocity, position, orientation, and shape
 data PhysModel q a = PhysModel
   {_physDomain :: PhysDomain q a
   ,_currentVelocity :: q a
@@ -48,11 +50,19 @@ makeLenses ''PhysModel
 instance (Show a, Show (q a)) => Show (PhysModel q a) where
   show model = "[" ++ green ("At: " ++ show (model^.currentOrigin)) ++ " | " ++ green ("Vel: " ++ show (model^.currentVelocity)) ++ " | Look: " ++ show (model^.currentOrientation) ++ " | Dom: " ++ show (model^.physDomain) ++ "]"
 
+-- Where the object is now, plus the applied force
 data PhysFuture q a = PhysFuture
   {_presentModel :: PhysModel q a
   ,_appliedForce :: q a
   }
 makeLenses ''PhysFuture
+
+-- We blinked and saw the object at a specific time with a specific force applied
+data PhysBlink q a = PhysBlink
+  {_blinkVision :: PhysFuture q a
+  ,_blinkTime :: a
+  }
+makeLenses ''PhysBlink
 
 applyForce :: q a -> PhysModel q a -> PhysFuture q a
 applyForce f m = PhysFuture {_presentModel = m, _appliedForce = f}
@@ -60,8 +70,11 @@ applyForce f m = PhysFuture {_presentModel = m, _appliedForce = f}
 instance (Show a, Show (q a)) => Show (PhysFuture q a) where
   show f = "{" ++ green ("Apply " ++ show (f^.appliedForce)) ++ " to " ++ show (f^.presentModel) ++ "}"
 
+-- The object as it stands, plus where it will be forevermore
 data PhysStory q a = PhysStory
   {_initialModel :: PhysFuture q a
+  -- Nothing means this future continues forever
+  -- Just means this future applies for a short time, then there is another chapter
   ,_expiryInfo :: Maybe (a,PhysStory q a)
   }
 makeLenses ''PhysStory
@@ -110,11 +123,20 @@ translationConstantAccel dt v a = dt *^ v ^+^ 0.5 * dt * dt *^ a
 velocityConstantAccel :: (Fractional a, Additive q) => a -> q a -> q a -> q a
 velocityConstantAccel dt v a = v ^+^ dt *^ a
 
+-- Sample forward the PhysFuture to a time dt after it was blinked
 readFuture :: (Fractional a, Additive q) => a -> PhysFuture q a -> PhysModel q a
 readFuture dt f = updateVel . updatePos $ f^.presentModel
   where
     updateVel = currentVelocity %~ (^+^ dt *^ f^.appliedForce)
     updatePos = currentOrigin %~ (^+^ translationConstantAccel dt (f^.presentModel.currentVelocity) (f^.appliedForce))
+
+-- Extrapolate a blink forward by dt
+reblink :: (Additive q,Fractional a,Num a) => a -> PhysBlink q a -> PhysBlink q a
+reblink dt = (blinkVision %~ seekFuture dt) . (blinkTime +~ dt)
+
+-- Extrapolate a blink to an absolute time
+blinkTo :: (Additive q,Fractional a,Num a) => a -> PhysBlink q a -> PhysBlink q a
+blinkTo t b = (blinkVision %~ seekFuture (t - (b^.blinkTime))) . (blinkTime .~ t) $ b
 
 readStory :: (Fractional a, Additive q, Ord a) => a -> PhysStory q a -> PhysModel q a
 readStory dt s = case s^.expiryInfo of
@@ -132,8 +154,20 @@ readStory dt s = case s^.expiryInfo of
 vecBelow :: (Applicative q, Foldable q, Ord a) => q a -> q a -> Bool
 vecBelow a b = and $ (<) <$> a <*> b
 
+-- Returns the first time the two simultaneous futures intersect after they start
+-- This operation is symmetric (anti-symmetry is a bug)
 timeOfIntersection :: (Foldable q, Applicative q, Show a, Ord a, Floating a, Metric q) => PhysFuture q a -> PhysFuture q a -> Maybe a
-timeOfIntersection fa fb = rectifyQuads . toList $ intervalOfIntersection fa fb
+timeOfIntersection fa fb = rectifyQuads . toList $ eqsOfMotion fa fb
+
+-- Returns the first absolute time of intersection of the two blinks
+blinkIntersect :: (Foldable q, Applicative q, Show a, Ord a, Floating a, Metric q) => PhysBlink q a -> PhysBlink q a -> Maybe a
+blinkIntersect ba bb = (baseTime +) <$> timeOfIntersection fa fb
+  where
+    (fa,fb) = if (ba^.blinkTime) > (bb^.blinkTime)
+      then (ba^.blinkVision, seekFuture blinkDrift (bb^.blinkVision))
+      else (seekFuture blinkDrift (ba^.blinkVision), bb^.blinkVision)
+    blinkDrift = abs $ (ba^.blinkTime) - (bb^.blinkTime)
+    baseTime = max (ba^.blinkTime) (bb^.blinkTime)
 
 maybeMin :: Ord a => V2 (Maybe a) -> Maybe a
 maybeMin (V2 (Just a) (Just b)) = Just $ min a b
@@ -155,6 +189,7 @@ intervalOfIntersection fa fb = soln
     (AABBDomain qB) = fb^.presentModel.physDomain
     soln aA' aB' vA' vB' xA' xB' qA' qB' = (V3 (xB' - xA') (vB' - vA') ((aB' - aA')/2),V2 (-qB') qA')
 
+-- Returns the dim q many quadratics with bounds representing collisions on each axis of the two PhysFutures
 eqsOfMotion :: (Foldable q, Applicative q, Show a, Ord a, Floating a, Metric q) => PhysFuture q a -> PhysFuture q a -> q (Quad a,V2 a)
 eqsOfMotion fa fb = do
   aA <- fa^.appliedForce
@@ -241,6 +276,7 @@ quadOddRoots (V3 c b a) = case signOf det of
 evalQuad :: Num a => a -> Quad a -> a
 evalQuad x (V3 c b a) = a * x * x + b * x + c
 
+-- Takes a list of quadratic equations with a single codomain bounding interval each, and returns the first time they all satisfy the bounds
 rectifyQuads :: (Show a, Ord a, Floating a) => [(Quad a, V2 a)] -> Maybe a
 rectifyQuads qs = safeHead . dropWhile (not . condition) $ mergedRoots
   where
@@ -299,11 +335,11 @@ domainAtRest x0 dom = PhysModel
   }
 
 gravityFuture :: PhysModel V3 Float -> PhysFuture V3 Float
-gravityFuture = applyForce (V3 0 (-1) 0)
+gravityFuture = applyForce (V3 0 (-9.8) 0)
     
 objAtZero :: PhysFuture V3 Float
 objAtZero = PhysFuture
-  {_appliedForce = zero
+  {_appliedForce = V3 0 0.2 0
   ,_presentModel = PhysModel
     {_physDomain = AABBDomain (V3 2 1 2)
     ,_currentOrigin = V3 0 (-1) 0
@@ -395,4 +431,3 @@ normalResponse mover kicker = normalize kickNormal ^* (norm dv * 1.6)
   where
     dv = mover^.currentVelocity ^-^ kicker^.currentVelocity
     kickNormal = (mover^.currentOrigin ^+^ mover^.physDomain.to domainCenter) ^-^ (kicker^.currentOrigin ^+^ kicker^.physDomain.to domainCenter)
-

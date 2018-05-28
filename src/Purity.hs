@@ -108,9 +108,18 @@ purityMain = do
           logInfo "Setting mouse to center screen..."
           --GLFW.setCursorPos theWindow (fromIntegral windowX/2) (fromIntegral windowY/2)
           logInfo "Initializing OpenGL..."
-          openGLInfo <- initGL
+          modelShader <- initGL
+          textShader <- do
+            programId <- initShaderProgram "textVShader" "textFShader"
+            uniforms <- mapM (flip withCString (glGetUniformLocation programId)) ["projection","text","textColor"]
+            pure $ ShaderProgram
+                {shaderName = programId
+                ,shaderUniformNames = uniforms
+                }
+
           logInfo "Adding Teapot..."
-          --(_rmTeapot, teapotData) <- initModel "normalTeapot.obj"
+          --(rmTeapot, teapotData) <- initModel "normalTeapot.obj"
+          --(rmArrow, teapotData) <- initModel "arrow.obj"
           let fallingAABB = AABBDomain (V3 1 1 1)
           wirePot <- wireframeAABB fallingAABB
           wireGround <- wireframeAABB $ objAtZero^.presentModel.physDomain
@@ -127,34 +136,67 @@ purityMain = do
             considerGround = physicalPresence %~ collideWith objAtZero
           logInfo "Entering render loop..."
           Just ft0 <- (fmap realToFrac) <$> GLFW.getTime
-          renderLoop ((presences .~ [groundCube, considerGround teapotOne,considerGround teapotTwo]) . (frameTimeInitial .~ ft0) . (frameTime .~ ft0) $ defaultPurityState) openGLInfo theWindow
+          renderLoop ((presences .~ [groundCube, considerGround teapotOne,considerGround teapotTwo]) . (frameTimeInitial .~ ft0) . (frameTime .~ ft0) $ defaultPurityState) modelShader textShader theWindow
     False -> logInfo "Failure!"
 
-
 -- | A loop that renders the scene until the program ends
-renderLoop :: PurityState -> OpenGLInfo -> GLFW.Window -> IO ()
-renderLoop !state openGLInfo theWindow = do
+renderLoop :: PurityState -> ShaderProgram -> ShaderProgram -> GLFW.Window -> IO ()
+renderLoop !state modelShader textShader theWindow = do
   -- Compute updated physics models for this frame
   renderables <- forM (state^.presences) $ \pres -> do
     let 
-      tea' = readStory (state^.frameTime - state^.frameTimeInitial) $ pres^.physicalPresence
+      frameSpeed = 0.5
+      tea' = readStory (frameSpeed * (state^.frameTime - state^.frameTimeInitial)) $ pres^.physicalPresence
         {-_presentModel = (pres^.physicalPresence)
         ,_appliedForce = (V3 0 (-1) 0)
         -}
-    logInfo $ "Teapot is at: " ++ show (tea'^.currentOrigin)
+    logTick $ "Teapot is at: " ++ show (tea'^.currentOrigin)
+    logInfo $ "Story is: " ++ show (pres^.physicalPresence)
+    logInfo ""
     pure RenderSpec
       {modelMatrix = mkTransformation (tea'^.currentOrientation) (tea'^.currentOrigin)
-      ,modelToRender = pres^.visiblePresence
+      ,modelToRender = DrawIndexedModel $ pres^.visiblePresence
       }
-  rCtx <- pure RenderContext
-    {viewMatrix = inv44 $ lookIn (state^.cameraPosition) (state^.cameraForward)
-    ,projMatrix = perspective (45 * pi/180) (4/3) 0.1 100
-    ,lightPos = state^.lightPosition
+  let
+    viewMatrix = inv44 $ lookIn (state^.cameraPosition) (state^.cameraForward)
+    projMatrix = perspective (45 * pi/180) (4/3) 0.1 100
+    lightPos = state^.lightPosition
+  drStr <- renderString (25,25) (replicate 10000 'a') >>= \di -> pure RenderSpec
+    {modelMatrix = ortho 0 1024 0 768 (-1) 1
+    ,modelToRender = di
     }
 
   -- Render this frame
   logTick "Drawing..."
-  draw openGLInfo rCtx renderables
+  logTick "Clearing screen..."
+  glClear $ GL_COLOR_BUFFER_BIT .|. GL_DEPTH_BUFFER_BIT
+  logTick "Using model shader program..."
+  glUseProgram (shaderName modelShader)
+
+  let [modelId,viewId,projectionId,lightLocationId,textureSamplerId] = shaderUniformNames modelShader
+  forM_ [("View",viewId,viewMatrix),("Projection",projectionId,projMatrix)] $ uncurry3 sendMatrix
+
+  logTick "Sending light position..."
+  with lightPos $ glUniform3fv lightLocationId 1 . castPtr
+
+  logTick "Unleashing texture sampler on unit 0..."
+  glUniform1i textureSamplerId 0
+
+  logTick "Rendering all models..."
+  forM_ renderables (drawModel modelId)
+
+  glUseProgram (shaderName textShader)
+
+  let [textProj,textSampler,textColor] = shaderUniformNames textShader
+
+  logTick "Unleashing texture sampler on unit 0..."
+  glUniform1i textSampler 0
+
+  logTick "Sending text color..."
+  with (V3 1 0 0 :: V3 Float) $ glUniform3fv textColor 1 . castPtr
+
+  drawModel textProj drStr
+
   logTick "Swapping buffers..."
   GLFW.swapBuffers theWindow
 
@@ -212,13 +254,13 @@ renderLoop !state openGLInfo theWindow = do
       GLFW.KeyState'Pressed -> do
         logInfo "Escape key was pressed, closing window"
         GLFW.destroyWindow theWindow
-      _ -> Concurrent.threadDelay 1000 *> if not handBrake then renderLoop state' openGLInfo theWindow else logInfo "Hard braking"
+      _ -> Concurrent.threadDelay 1000 *> if not handBrake then renderLoop state' modelShader textShader theWindow else logInfo "Hard braking"
 
 handBrake :: Bool
 handBrake = False
 
 -- | Initialize OpenGL, returning the rendering context
-initGL :: IO OpenGLInfo
+initGL :: IO ShaderProgram
 initGL = do
   logInfo "Setting clear color to blue..."
   glClearColor 0 0 4 0
@@ -230,10 +272,20 @@ initGL = do
   logInfo "Enabling back face culling..."
   glEnable GL_CULL_FACE
 
+  programId <- initShaderProgram "vertexShader" "fragmentShader"
+  uniforms <- mapM (flip withCString (glGetUniformLocation programId)) ["Model","View","Projection","LightPosition","TextureSampler"]
+
+  pure $ ShaderProgram
+    {shaderName = programId
+    ,shaderUniformNames = uniforms
+    }
+
+initShaderProgram :: FilePath -> FilePath -> IO GLuint
+initShaderProgram vShaderPath fShaderPath = do
   logInfo "Loading Vertex Shader..."
-  vShader <- loadShader GL_VERTEX_SHADER "vertexShader"
+  vShader <- loadShader GL_VERTEX_SHADER vShaderPath
   logInfo "Loading Fragment Shader..."
-  fShader <- loadShader GL_FRAGMENT_SHADER "fragmentShader"
+  fShader <- loadShader GL_FRAGMENT_SHADER fShaderPath
 
   logInfo "Creating shader program..."
   programId <- glCreateProgram
@@ -263,27 +315,14 @@ initGL = do
     glDetachShader programId shader
     logInfo $ "Deleting " ++ name ++ " Shader..."
     glDeleteShader shader
+  pure programId
 
-  [modelId,viewId,projectionId,lightId,textureSamplerId'] <- mapM (flip withCString (glGetUniformLocation programId)) ["Model","View","Projection","LightPosition","TextureSampler"]
-
-  pure $ OpenGLInfo 
-    {shaderProgram = programId
-    ,modelMatrixId = modelId
-    ,viewMatrixId = viewId
-    ,projectionMatrixId = projectionId
-    ,lightLocationId = lightId
-    ,textureSamplerId = textureSamplerId'
-    }
-
-{-
-stdOrtho :: Mat.Matrix Double
+stdOrtho :: M44 GLfloat
 stdOrtho = V4
-  [[1,0,0,0]
-  ,[0,1,0,0]
-  ,[0,0,-1,0]
-  ,[0,0,0,1]
-  ]
--}
+  (V4 1 0 0 0)
+  (V4 0 1 0 0)
+  (V4 0 0 (-1) 0)
+  (V4 0 0 0 1)
 
 -- TODO: natural inverse for faster yay
 -- | Build a view matrix for looking in the direction of a unit vector from a point.
@@ -316,6 +355,7 @@ loadShader shaderType shaderPath = do
   pure shaderId
 
 -- | Draw a frame
+{-
 draw :: OpenGLInfo -> RenderContext -> [RenderSpec] -> IO ()
 draw glInfo@OpenGLInfo{..} rCtx@RenderContext{..} models = do
   logTick "Clearing screen..."
@@ -331,7 +371,6 @@ draw glInfo@OpenGLInfo{..} rCtx@RenderContext{..} models = do
   logTick "Unleashing texture sampler on unit 0..."
   glUniform1i textureSamplerId 0
 
-
   logTick "Rendering all models..."
   forM_ models (drawModel glInfo rCtx)
-
+  -}
