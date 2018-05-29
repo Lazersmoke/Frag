@@ -149,8 +149,9 @@ renderLoop !state arrowDrawModel flatModelShader texturedModelShader textShader 
       ,modelToRender = DrawIndexedModel $ pres^.visiblePresence
       ,renderItemName = "PhysModel with " ++ show (onThisFrame pres)
       }
-    cameraSpinSpeed = 0.1
-    viewMatrix = lookAt (20 *^ (V3 (cos $ cameraSpinSpeed * scaledt) 0 (sin $ cameraSpinSpeed * scaledt))) (V3 0 0 0) (V3 0 1 0) --inv44 $ lookIn (state^.cameraPosition) (state^.cameraForward)
+    --cameraSpinSpeed = 2
+    --viewMatrix = lookAt (20 *^ (V3 (cos $ cameraSpinSpeed * scaledt) 0 (sin $ cameraSpinSpeed * scaledt))) (V3 0 0 0) (V3 0 1 0) 
+    viewMatrix = inv44 $ lookIn (state^.cameraPosition) (state^.cameraForward)
     projMatrix = perspective (45 * pi/180) (4/3 :: GLfloat) 0.1 100
     lightPos = state^.lightPosition
     arrowModelDirection = V3 0 1 0
@@ -159,8 +160,9 @@ renderLoop !state arrowDrawModel flatModelShader texturedModelShader textShader 
     velocityArrow m = arrowFromTo (m^.currentOrigin) ((m^.currentOrigin) ^+^ (m^.currentVelocity))
     accelArrows = map accelArrow (state^.presences)
     accelArrow p = arrowFromTo (onThisFrame p^.currentOrigin) ((onThisFrame p^.currentOrigin) ^+^ (p^.physicalPresence.initialModel.appliedForce))
+    arrowFatnessScale = 3
     arrowFromTo f t = RenderSpec
-      {modelMatrix = mkTransformationMat (fromQuaternion $ deltaQuat arrowModelDirection (normalize $ t - f)) f !*! (V4 (V4 1 0 0 0) (V4 0 (norm $ t - f) 0 0) (V4 0 0 1 0) (V4 0 0 0 1))
+      {modelMatrix = mkTransformationMat (fromQuaternion $ deltaQuat arrowModelDirection (normalize $ t - f)) f !*! V4 (V4 arrowFatnessScale 0 0 0) (V4 0 (norm $ t - f) 0 0) (V4 0 0 arrowFatnessScale 0) (V4 0 0 0 1)
       ,modelToRender = DrawIndexedModel arrowDrawModel
       ,renderItemName = "Arrow from " ++ show f ++ " to " ++ show t
       }
@@ -252,28 +254,32 @@ renderLoop !state arrowDrawModel flatModelShader texturedModelShader textShader 
   Just ft <- (fmap realToFrac) <$> GLFW.getTime
   let
     dt = ft - state^.frameTime
-    forward = rotate (state^.cameraForward) $ V3 0 0 (-1)
+    forward = normalize $ rotate (state^.cameraForward) $ V3 0 0 (-1)
     right = normalize $ cross forward (rotate (state^.cameraForward) $ V3 0 1 0)
     up = normalize $ cross right forward
 
   -- Mouse look
-  (cx,cy) <- GLFW.getCursorPos theWindow
-  (wx,wy) <- GLFW.getWindowSize theWindow
-  GLFW.setCursorPos theWindow (fromIntegral wx/2) (fromIntegral wy/2)
-  let 
-    (dx,dy) = ((fromIntegral wx/2)-cx,(fromIntegral wy/2)-cy)
-    mouseSpeed = dt * 0.01 -- radians/pixel
-    (tx,ty) = (realToFrac dx * mouseSpeed,realToFrac dy * mouseSpeed) :: (Float,Float)
-    yaw = axisAngle {-(V3 0 1 0)-} up tx
-    -- Clamp so they can't go upside down
-    currty = acos $ dot (V3 0 (-1) 0) forward
-    ty' = max (min ty (pi - currty)) (-currty)
-    pitch = axisAngle right ty'
+{-do
+    (cx,cy) <- GLFW.getCursorPos theWindow
+    (wx,wy) <- GLFW.getWindowSize theWindow
+    GLFW.setCursorPos theWindow (fromIntegral wx/2) (fromIntegral wy/2)
+    let 
+      (dx,dy) = ((fromIntegral wx/2)-cx,(fromIntegral wy/2)-cy)
+      mouseSpeed = dt * 0.01 -- radians/pixel
+      (tx,ty) = (realToFrac dx * mouseSpeed,realToFrac dy * mouseSpeed) :: (Float,Float)
+      yaw = axisAngle {-(V3 0 1 0)-} up tx
+      -- Clamp so they can't go upside down
+      currty = acos $ dot (V3 0 (-1) 0) forward
+      ty' = max (min ty (pi - currty)) (-currty)
+      pitch = axisAngle right ty'
 
-  logTick $ "Read cursor at " ++ show (cx,cy) ++ " and noted the change was " ++ show (dx,dy) ++ " off from " ++ show (fromIntegral wx/2 :: Float,fromIntegral wy/2 :: Float) ++ " so used angles " ++ show (tx,ty)
-
+    logTick $ "Read cursor at " ++ show (cx,cy) ++ " and noted the change was " ++ show (dx,dy) ++ " off from " ++ show (fromIntegral wx/2 :: Float,fromIntegral wy/2 :: Float) ++ " so used angles " ++ show (tx,ty)
+-}
   -- Move player
   moveVec <- sum . zipWith (\v b -> if b then v else V3 0 0 0) [forward,-right,-forward,right,up,-up] . fmap (==GLFW.KeyState'Pressed) <$> mapM (GLFW.getKey theWindow) [GLFW.Key'W,GLFW.Key'A,GLFW.Key'S,GLFW.Key'D,GLFW.Key'Q,GLFW.Key'Z]
+
+  -- Keyboard look
+  (V2 dTheta dPhi) <- sum . zipWith (\v b -> if b then v else V2 0 0) [V2 0 (-1),V2 (-1) 0,V2 0 1,V2 1 0] . fmap (==GLFW.KeyState'Pressed) <$> mapM (GLFW.getKey theWindow) [GLFW.Key'B,GLFW.Key'H,GLFW.Key'T,GLFW.Key'F]
 
   -- Get light key
   lPressed <- (==GLFW.KeyState'Pressed) <$> GLFW.getKey theWindow GLFW.Key'L
@@ -282,9 +288,14 @@ renderLoop !state arrowDrawModel flatModelShader texturedModelShader textShader 
     -- Update light position if need
     updateLight = if lPressed then lightPosition .~ (state^.cameraPosition) else id
     -- Update with mouse look
-    updateForward = cameraForward %~ \q -> q + 0 *^ normalize (pitch * yaw * q)
+    --updateForward = cameraForward %~ \q -> q + normalize (pitch * yaw * q)
+    -- Update with keyboard look
+    keyStep = 1
+    pitch = axisAngle right (dt * keyStep * dPhi)
+    yaw = axisAngle up (dt * keyStep * dTheta)
+    updateForward = cameraForward %~ \q -> normalize (pitch * yaw * q)
     -- Update with keyboard
-    updateMove = cameraPosition %~ (^+^ 0 *^ moveVec)
+    updateMove = cameraPosition %~ (^+^ (dt * 10) *^ moveVec)
     -- Apply all updates
     state' = updateLight . updateForward . updateMove . (frameTime .~ ft) $ state
 
