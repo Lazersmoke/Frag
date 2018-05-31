@@ -22,7 +22,7 @@ import Purity.Data
 
 data Presence q a = Presence
   {_visiblePresence :: DrawModel
-  ,_physicalPresence :: PhysStory q a
+  ,_physicalPresence :: PhysGlide q a
   }
 makeLenses ''Presence
 
@@ -112,43 +112,54 @@ purityMain = do
           textShader <- createShaderProgram "textVShader" "textFShader" ["projection","text","textColor"]
           flatModelShader <- createShaderProgram "flatVertexShader" "flatFragmentShader" ["Model","View","Projection","LightPosition","FlatColor"]
           texturedModelShader <- createShaderProgram "vertexShader" "fragmentShader" ["Model","View","Projection","LightPosition","TextureSampler"]
+          lineShader <- createShaderProgram "lineVShader" "lineFShader" ["Model","View","Projection","lineColor"]
 
           --(rmTeapot, teapotData) <- initModel "normalTeapot.obj" "test.png"
           (rmArrow, _arrowData) <- initFlatModel "unitzarrow.obj"
           let fallingAABB = AABBDomain (V3 1 1 1)
           wirePot <- wireframeAABB fallingAABB
           wireGround <- wireframeAABB $ objAtZero^.presentModel.physDomain
+          Just ft0 <- (fmap realToFrac) <$> GLFW.getTime
           let 
             teapotOne = Presence
               {_visiblePresence = wirePot
-              ,_physicalPresence = singleChapter . gravityFuture . domainAtRest (V3 1 5 0) $ fallingAABB
+              ,_physicalPresence = glideForever . blinkAt 0 . gravityFuture . domainAtRest (V3 1 0.1 0) $ fallingAABB
               }
-            teapotTwo = physicalPresence %~ (spliceBump 0.5 (V3 0 3 0)) $ teapotOne
+            _teapotTwo = physicalPresence.exigentBlink.blinkVision.presentModel.currentOrigin %~ (^+^ (V3 0 3 0)) $ teapotOne
             groundCube = Presence
               {_visiblePresence = wireGround
-              ,_physicalPresence = singleChapter objAtZero
+              ,_physicalPresence = glideForever $ blinkAt 0 objAtZero
               }
-            considerGround = physicalPresence %~ collideWith objAtZero
           logInfo "Entering render loop..."
-          Just ft0 <- (fmap realToFrac) <$> GLFW.getTime
-          renderLoop ((presences .~ [groundCube, considerGround teapotOne,considerGround teapotTwo]) . (frameTimeInitial .~ ft0) . (frameTime .~ ft0) $ defaultPurityState) rmArrow flatModelShader texturedModelShader textShader theWindow
+          renderLoop ((presences .~ [groundCube,teapotOne]) . (frameTimeInitial .~ ft0) . (frameTime .~ ft0) $ defaultPurityState) rmArrow lineShader flatModelShader texturedModelShader textShader theWindow
     False -> logInfo "Failure!"
 
 -- | A loop that renders the scene until the program ends
-renderLoop :: PurityState -> DrawModel -> ShaderProgram -> ShaderProgram -> ShaderProgram -> GLFW.Window -> IO ()
-renderLoop !state arrowDrawModel flatModelShader texturedModelShader textShader theWindow = do
+renderLoop :: PurityState -> DrawModel -> ShaderProgram -> ShaderProgram -> ShaderProgram -> ShaderProgram -> GLFW.Window -> IO ()
+renderLoop !state arrowDrawModel lineShader flatModelShader texturedModelShader textShader theWindow = do
   -- Compute updated physics models for this frame
   let 
-    frameSpeed = 0.25
+    frameSpeed = 0.05
     scaledt = frameSpeed * (state^.frameTime - state^.frameTimeInitial)
-    onThisFrame pres = readStory scaledt $ pres^.physicalPresence
-    renderedPhysModels = map onThisFrame (state^.presences)
-    texturedModels = map texturedModel (state^.presences)
-    texturedModel pres = RenderSpec
-      {modelMatrix = mkTransformation (onThisFrame pres^.currentOrientation) (onThisFrame pres^.currentOrigin)
+    onThisFrame :: Presence V3 Float -> PhysBlink V3 Float
+    onThisFrame pres = case pres^.physicalPresence.plannedBlink of
+      Just plBl | scaledt >= plBl^.blinkTime -> blinkTo scaledt plBl
+      _ -> blinkTo scaledt $ pres^.physicalPresence.exigentBlink
+    modelThisFrame pres = onThisFrame pres^.blinkVision.presentModel
+    renderedPhysModels = map modelThisFrame (state^.presences)
+    framedModels = map renderSpecForPresence (state^.presences)
+    renderSpecForPresence pres = RenderSpec
+      {modelMatrix = modelMatrixForPhysModel (modelThisFrame pres)
       ,modelToRender = DrawIndexedModel $ pres^.visiblePresence
-      ,renderItemName = "PhysModel with " ++ show (onThisFrame pres)
+      ,renderItemName = "PhysModel with " ++ show (modelThisFrame pres)
       }
+    plannedModels = map renderSpecForPlannedBlink (state^.presences)
+    renderSpecForPlannedBlink pres = flip fmap (pres^.physicalPresence.plannedBlink) $ \plBl -> RenderSpec
+      {modelMatrix = plBl^.blinkVision.presentModel.to modelMatrixForPhysModel
+      ,modelToRender = DrawIndexedModel $ pres^.visiblePresence
+      ,renderItemName = "Predicted PhysModel with " ++ show (plBl^.blinkVision.presentModel)
+      }
+    modelMatrixForPhysModel m = mkTransformation (m^.currentOrientation) (m^.currentOrigin)
     --cameraSpinSpeed = 2
     --viewMatrix = lookAt (20 *^ (V3 (cos $ cameraSpinSpeed * scaledt) 0 (sin $ cameraSpinSpeed * scaledt))) (V3 0 0 0) (V3 0 1 0) 
     viewMatrix = inv44 $ lookIn (state^.cameraPosition) (state^.cameraForward)
@@ -159,7 +170,7 @@ renderLoop !state arrowDrawModel flatModelShader texturedModelShader textShader 
     velocityArrows = map velocityArrow renderedPhysModels
     velocityArrow m = arrowFromTo (m^.currentOrigin) ((m^.currentOrigin) ^+^ (m^.currentVelocity))
     accelArrows = map accelArrow (state^.presences)
-    accelArrow p = arrowFromTo (onThisFrame p^.currentOrigin) ((onThisFrame p^.currentOrigin) ^+^ (p^.physicalPresence.initialModel.appliedForce))
+    accelArrow p = arrowFromTo (modelThisFrame p^.currentOrigin) ((modelThisFrame p^.currentOrigin) ^+^ (p^.physicalPresence.exigentBlink.blinkVision.appliedForce))
     arrowFatnessScale = 3
     arrowFromTo f t = RenderSpec
       {modelMatrix = mkTransformationMat (fromQuaternion $ deltaQuat arrowModelDirection (normalize $ t - f)) f !*! V4 (V4 arrowFatnessScale 0 0 0) (V4 0 (norm $ t - f) 0 0) (V4 0 0 arrowFatnessScale 0) (V4 0 0 0 1)
@@ -174,7 +185,7 @@ renderLoop !state arrowDrawModel flatModelShader texturedModelShader textShader 
           then axisAngle (cross a (V3 0 1 0)) pi
           else axisAngle (cross a (V3 1 0 0)) pi
         else axisAngle (cross a b) (acos $ dot a b)
-  drStr <- renderString (25,25) (show $ state^.frameTime) >>= \di -> pure RenderSpec
+  drStr <- renderString (25,25) (show scaledt) >>= \di -> pure RenderSpec
     {modelMatrix = ortho 0 1024 0 768 (-1) 1
     ,modelToRender = di
     ,renderItemName = "debug text"
@@ -189,7 +200,7 @@ renderLoop !state arrowDrawModel flatModelShader texturedModelShader textShader 
     logTick "Using textured model shader program..."
     glUseProgram (shaderName texturedModelShader)
 
-    let [modelId,viewId,projectionId,lightLocationId,textureSamplerId] = shaderUniformNames texturedModelShader
+    let [_modelId,viewId,projectionId,lightLocationId,textureSamplerId] = shaderUniformNames texturedModelShader
     forM_ [("View",viewId,viewMatrix),("Projection",projectionId,projMatrix)] $ uncurry3 sendMatrix
 
     logTick "Sending light position..."
@@ -198,9 +209,29 @@ renderLoop !state arrowDrawModel flatModelShader texturedModelShader textShader 
     logTick "Unleashing texture sampler on unit 0..."
     glUniform1i textureSamplerId 0
 
-    logTick "Rendering all models..."
-    forM_ texturedModels (drawModel modelId)
+    --logTick "Rendering all models..."
+    --forM_ framedModels (drawModel modelId)
 
+  do
+    logTick "Using line shader program..."
+    glUseProgram (shaderName lineShader)
+
+    let [modelId,viewId,projectionId,lineColorId] = shaderUniformNames lineShader
+    forM_ [("View",viewId,viewMatrix),("Projection",projectionId,projMatrix)] $ uncurry3 sendMatrix
+
+    logTick "Sending red color for normal object..."
+    with (V3 1 0 0 :: V3 GLfloat) $ glUniform3fv lineColorId 1 . castPtr
+
+    logTick "Rendering all wireframes..."
+    forM_ framedModels (drawModel modelId)
+
+    logTick "Sending yellow color for planned object..."
+    with (V3 1 1 0 :: V3 GLfloat) $ glUniform3fv lineColorId 1 . castPtr
+
+    logTick "Rendering all planned wireframes..."
+    forM_ plannedModels $ \case
+      Just pm -> drawModel modelId pm
+      Nothing -> pure ()
   do
     logTick "Using flat model shader program..."
     glUseProgram (shaderName flatModelShader)
@@ -281,6 +312,18 @@ renderLoop !state arrowDrawModel flatModelShader texturedModelShader textShader 
   -- Keyboard look
   (V2 dTheta dPhi) <- sum . zipWith (\v b -> if b then v else V2 0 0) [V2 0 (-1),V2 (-1) 0,V2 0 1,V2 1 0] . fmap (==GLFW.KeyState'Pressed) <$> mapM (GLFW.getKey theWindow) [GLFW.Key'B,GLFW.Key'H,GLFW.Key'T,GLFW.Key'F]
 
+  -- Rewind
+  shouldRewind <- (==GLFW.KeyState'Pressed) <$> GLFW.getKey theWindow GLFW.Key'R
+  if shouldRewind
+    then GLFW.setTime . (subtract 1) . realToFrac . (\(Just x) -> x) =<< GLFW.getTime
+    else pure ()
+
+  -- Fast Forward
+  shouldFF <- (==GLFW.KeyState'Pressed) <$> GLFW.getKey theWindow GLFW.Key'Y
+  if shouldFF
+    then GLFW.setTime . (+1) . realToFrac . (\(Just x) -> x) =<< GLFW.getTime
+    else pure ()
+
   -- Get light key
   lPressed <- (==GLFW.KeyState'Pressed) <$> GLFW.getKey theWindow GLFW.Key'L
 
@@ -295,11 +338,22 @@ renderLoop !state arrowDrawModel flatModelShader texturedModelShader textShader 
     yaw = axisAngle up (dt * keyStep * dTheta)
     updateForward = cameraForward %~ \q -> normalize (pitch * yaw * q)
     -- Update with keyboard
-    updateMove = cameraPosition %~ (^+^ (dt * 10) *^ moveVec)
+    updateMove = cameraPosition %~ (^+^ (dt * 50) *^ moveVec)
+    -- Update physics
+    updatePhysics = presences %~ map (updateNextBlink . updateThisBlink)
+    updateNextBlink p = physicalPresence.plannedBlink .~ nextBlink (map (^.physicalPresence.exigentBlink) $ state^.presences) (p^.physicalPresence.exigentBlink) $ p
+    updateThisBlink p = case p^.physicalPresence.plannedBlink of
+      Just plBl | scaledt >= plBl^.blinkTime -> (physicalPresence.plannedBlink .~ Nothing) . (physicalPresence.exigentBlink .~ plBl) $ p
+      _ -> p
     -- Apply all updates
-    state' = updateLight . updateForward . updateMove . (frameTime .~ ft) $ state
+    state' = updatePhysics . updateLight . updateForward . updateMove . (frameTime .~ ft) $ state
 
   logTick $ "New state: " ++ show state'
+  logTick $ "scaledt: " ++ show scaledt
+  logTick $ "Old physics:"
+  forM_ (state^.presences) $ \p -> logTick $ "  " ++ (show $ p^.physicalPresence)
+  logTick $ "New physics:"
+  forM_ (state'^.presences) $ \p -> logTick $ "  " ++ (show $ p^.physicalPresence)
 
   GLFW.windowShouldClose theWindow >>= \case
     True -> do
@@ -309,7 +363,7 @@ renderLoop !state arrowDrawModel flatModelShader texturedModelShader textShader 
       GLFW.KeyState'Pressed -> do
         logInfo "Escape key was pressed, closing window"
         GLFW.destroyWindow theWindow
-      _ -> Concurrent.threadDelay 1000 *> if not handBrake then renderLoop state' arrowDrawModel flatModelShader texturedModelShader textShader theWindow else logInfo "Hard braking"
+      _ -> Concurrent.threadDelay 1000 *> if not handBrake then renderLoop state' arrowDrawModel lineShader flatModelShader texturedModelShader textShader theWindow else logInfo "Hard braking"
 
 handBrake :: Bool
 handBrake = False

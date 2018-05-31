@@ -39,6 +39,14 @@ logDebug = logStrTag "Debug"
 green :: String -> String
 green s = "\x1b[32m" ++ s ++ "\x1b[0m"
 
+-- | Make a string blue
+blue :: String -> String
+blue s = "\x1b[34m" ++ s ++ "\x1b[0m"
+
+-- | Make a string cyan
+cyan :: String -> String
+cyan s = "\x1b[36m" ++ s ++ "\x1b[0m"
+
 -- | Make a string red
 red :: String -> String
 red s = "\x1b[31m" ++ s ++ "\x1b[0m"

@@ -1,0 +1,13 @@
+#version 330 core
+// Vertex position
+layout(location = 0) in vec3 vertexPosition;
+
+// The MVP matrix
+uniform mat4 Model;
+uniform mat4 View;
+uniform mat4 Projection;
+
+void main(){
+  // Upgrade the vertex position to a mat4 as a static position, and multiply with MVP
+  gl_Position = Projection * View * Model * vec4(vertexPosition,1);
+}

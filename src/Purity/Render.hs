@@ -93,7 +93,7 @@ drawModel modelMatrixId RenderSpec{..} = do
           logTick $ "Using texture number " ++ show name ++ "..."
           glBindTexture GL_TEXTURE_2D name
         Nothing -> pure ()
-      logTick $ "Drawing triangles for " ++ renderItemName ++ "..."
+      logTick $ "Drawing elements for " ++ renderItemName ++ "..."
       glDrawElements (primitiveType dm) (indexCount dm) (elementType dm) nullPtr
     DrawDirectly i -> i
 

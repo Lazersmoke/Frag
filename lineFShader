@@ -1,0 +1,10 @@
+#version 330 core
+
+// Output a color for each fragment
+out vec3 color;
+
+uniform vec3 lineColor;
+
+void main(){
+  color = lineColor;
+}

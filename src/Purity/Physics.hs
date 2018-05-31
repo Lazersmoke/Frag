@@ -7,12 +7,16 @@
 {-# LANGUAGE ApplicativeDo #-}
 module Purity.Physics where
 
-import Linear
+import Linear hiding (trace)
 import Control.Lens
-import Control.Monad
-import Data.Foldable
---import Debug.Trace
+--import Control.Monad
+--import Data.Foldable
+import Data.Semigroup
+import Debug.Trace
 import Purity.Data
+
+kindaCloseToZero :: (Ord a,Floating a) => a -> Bool
+kindaCloseToZero = (< 0.001) . abs
 
 newtype Surface q a = Surface
   {_surfaceNormal :: q a -- Surface is at and normal to tip of vector
@@ -24,7 +28,7 @@ groundSurface = Surface (V3 0 1 0)
 
 -- A physical subset of q a describing the shape of our object
 data PhysDomain q a
-  = AABBDomain (q a) deriving Show
+  = AABBDomain (q a) deriving (Eq,Show)
   -- | SphereDomain a
   -- Origin is lower edge
   -- Height then radius
@@ -44,31 +48,53 @@ data PhysModel q a = PhysModel
   ,_currentVelocity :: q a
   ,_currentOrigin :: q a
   ,_currentOrientation :: Quaternion a
-  }
+  } deriving Eq
 makeLenses ''PhysModel
 
 instance (Show a, Show (q a)) => Show (PhysModel q a) where
-  show model = "[" ++ green ("At: " ++ show (model^.currentOrigin)) ++ " | " ++ green ("Vel: " ++ show (model^.currentVelocity)) ++ " | Look: " ++ show (model^.currentOrientation) ++ " | Dom: " ++ show (model^.physDomain) ++ "]"
+  show model = blue "[" ++ green ("At: " ++ show (model^.currentOrigin)) ++ blue " | " ++ green ("Vel: " ++ show (model^.currentVelocity)) ++ blue " | " ++ "Look: " ++ show (model^.currentOrientation) ++ blue " | " ++ "Dom: " ++ show (model^.physDomain) ++ blue "]"
 
 -- Where the object is now, plus the applied force
 data PhysFuture q a = PhysFuture
   {_presentModel :: PhysModel q a
   ,_appliedForce :: q a
-  }
+  } deriving Eq
 makeLenses ''PhysFuture
 
 -- We blinked and saw the object at a specific time with a specific force applied
 data PhysBlink q a = PhysBlink
   {_blinkVision :: PhysFuture q a
   ,_blinkTime :: a
-  }
+  } deriving Eq
 makeLenses ''PhysBlink
+
+blinkAt :: a -> PhysFuture q a -> PhysBlink q a
+blinkAt = flip PhysBlink
+
+instance (Eq (q a),Ord a) => Ord (PhysBlink q a) where
+  a <= b = a^.blinkTime <= b^.blinkTime
+
+instance (Show a, Show (q a)) => Show (PhysBlink q a) where
+  show b = "BLINK[" ++ show (b^.blinkTime) ++ "]" ++ show (b^.blinkVision)
+
+-- | We blinked and saw the object, then decided when we will need to update its path
+data PhysGlide q a = PhysGlide
+  {_exigentBlink :: PhysBlink q a
+  ,_plannedBlink :: Maybe (PhysBlink q a)
+  }
+makeLenses ''PhysGlide
+
+instance (Show a, Show (q a)) => Show (PhysGlide q a) where
+  show f = cyan "Exigent: " ++ show (f^.exigentBlink) ++ cyan " Planned: " ++ show (f^.plannedBlink)
+
+glideForever :: PhysBlink q a -> PhysGlide q a
+glideForever b = PhysGlide b Nothing
 
 applyForce :: q a -> PhysModel q a -> PhysFuture q a
 applyForce f m = PhysFuture {_presentModel = m, _appliedForce = f}
 
 instance (Show a, Show (q a)) => Show (PhysFuture q a) where
-  show f = "{" ++ green ("Apply " ++ show (f^.appliedForce)) ++ " to " ++ show (f^.presentModel) ++ "}"
+  show f = green "{" ++ green ("Apply " ++ show (f^.appliedForce)) ++ " to " ++ show (f^.presentModel) ++ green "}"
 
 -- The object as it stands, plus where it will be forevermore
 data PhysStory q a = PhysStory
@@ -79,8 +105,8 @@ data PhysStory q a = PhysStory
   }
 makeLenses ''PhysStory
 
-expiryTime :: Traversal' (PhysStory q a) a
-expiryTime = expiryInfo._Just._1
+--expiryTime :: Traversal' (PhysStory q a) a
+--expiryTime = expiryInfo._Just._1
 
 nextChapter :: Traversal' (PhysStory q a) (PhysStory q a)
 nextChapter = expiryInfo._Just._2
@@ -157,17 +183,23 @@ vecBelow a b = and $ (<) <$> a <*> b
 -- Returns the first time the two simultaneous futures intersect after they start
 -- This operation is symmetric (anti-symmetry is a bug)
 timeOfIntersection :: (Foldable q, Applicative q, Show a, Ord a, Floating a, Metric q) => PhysFuture q a -> PhysFuture q a -> Maybe a
-timeOfIntersection fa fb = rectifyQuads . toList $ eqsOfMotion fa fb
+timeOfIntersection fa fb = foldl f Nothing . rectifyQuads $ eqsOfMotion fa fb
+  where
+    f (Just x) (Just x') = Just $ min x x'
+    f Nothing (Just x') = Just x'
+    f (Just x) Nothing = Just x
+    f Nothing Nothing = Nothing
 
--- Returns the first absolute time of intersection of the two blinks
-blinkIntersect :: (Foldable q, Applicative q, Show a, Ord a, Floating a, Metric q) => PhysBlink q a -> PhysBlink q a -> Maybe a
-blinkIntersect ba bb = (baseTime +) <$> timeOfIntersection fa fb
+-- Returns the first (wrt absolute time) intersection of the two blinks, in the form of the first blink forwarded to immediately after the intersection
+blinkIntersect :: (Epsilon a,Foldable q, Applicative q, Show (q [a]), Show a, Ord a, Floating a, Metric q) => PhysBlink q a -> PhysBlink q a -> Maybe (PhysBlink q a)
+blinkIntersect ba bb = fixup . (baseTime +) <$> timeOfIntersection fa fb
   where
     (fa,fb) = if (ba^.blinkTime) > (bb^.blinkTime)
       then (ba^.blinkVision, seekFuture blinkDrift (bb^.blinkVision))
       else (seekFuture blinkDrift (ba^.blinkVision), bb^.blinkVision)
     blinkDrift = abs $ (ba^.blinkTime) - (bb^.blinkTime)
     baseTime = max (ba^.blinkTime) (bb^.blinkTime)
+    fixup t = blinkVision.presentModel .~ resultCollisionModel (blinkTo t bb^.blinkVision.presentModel) (blinkTo t ba^.blinkVision.presentModel) $ blinkTo t ba
 
 maybeMin :: Ord a => V2 (Maybe a) -> Maybe a
 maybeMin (V2 (Just a) (Just b)) = Just $ min a b
@@ -263,7 +295,7 @@ quadLeftSign (V3 c b a) = case signOf a of
     x -> x
   x -> x
 
-quadOddRoots :: (Show a, Ord a, Floating a) => Quad a -> [a]
+quadOddRoots :: (Ord a, Floating a) => Quad a -> [a]
 quadOddRoots (V3 c b a) = case signOf det of
   Plus -> case signOf a of
     Plus -> [(-b - sqrt det)/(2 * a),(-b + sqrt det)/(2 * a)]
@@ -277,15 +309,16 @@ evalQuad :: Num a => a -> Quad a -> a
 evalQuad x (V3 c b a) = a * x * x + b * x + c
 
 -- Takes a list of quadratic equations with a single codomain bounding interval each, and returns the first time they all satisfy the bounds
-rectifyQuads :: (Show a, Ord a, Floating a) => [(Quad a, V2 a)] -> Maybe a
-rectifyQuads qs = safeHead . dropWhile (not . condition) $ mergedRoots
+rectifyQuads :: (Functor q, Foldable q, Ord a, Floating a, Show a) => q (Quad a, V2 a) -> q (Maybe a)
+rectifyQuads qs = fmap (safeHead . dropWhile (not . condition . traceShowId)) mergedRoots
   where
-    --initSigns = fmap quadLefSign qs
-    --roots = snd . foldr (\xs (n,l) -> (n + 1,merge l n xs)) (0,[]) . fmap (clampToZero False) . traceShowId $ allRoots
-    condition x = and $ fmap (\(q,V2 low high) -> let e = evalQuad x q in e <= high && low <= e) qs
-    zqs = concatMap (\(q,V2 low high) -> [q ^-^ V3 low 0 0,q ^-^ V3 high 0 0]) $ qs
-    allRoots = fmap quadOddRoots zqs
-    mergedRoots = dropWhile (< 0) . foldr merge [] $ allRoots
+    condition x = and $ fmap (\(q,V2 low high) -> let e = evalQuad x q in (e <= high && low <= e) || kindaCloseToZero (e - high) || kindaCloseToZero (e - low)) qs
+    -- q [Quad q a]
+    zqs = fmap (\(q,V2 low high) -> [q ^-^ V3 low 0 0,q ^-^ V3 high 0 0]) $ qs
+    -- q [[a]]
+    allRoots = fmap (fmap quadOddRoots) zqs
+    -- q [a]
+    mergedRoots = fmap ({-(0:) . -}dropWhile (< 0) . foldr merge []) allRoots
 
 safeHead :: [a] -> Maybe a
 safeHead [] = Nothing
@@ -326,7 +359,7 @@ linOddRoots c b = if b == 0 then [] else [-c/b]
 turningPoint :: (Metric q, Floating a) => PhysFuture q a -> a
 turningPoint f = norm (f^.presentModel.currentVelocity) / norm (f^.appliedForce)
 
-domainAtRest :: (Additive q, Epsilon a, Floating a) => q a -> PhysDomain q a -> PhysModel q a
+domainAtRest :: (Epsilon a,Additive q, Floating a) => q a -> PhysDomain q a -> PhysModel q a
 domainAtRest x0 dom = PhysModel
   {_physDomain = dom
   ,_currentOrigin = x0
@@ -386,13 +419,13 @@ objRight = PhysFuture
     ,_currentOrientation = axisAngle (V3 0 0 (-1)) 0
     }
   }
-
-worryAbout :: (Foldable q, Metric q, Applicative q, Show a, Ord a, Floating a, Epsilon a) => a -> PhysFuture q a -> PhysFuture q a -> PhysModel q a
+{-
+worryAbout :: (Foldable q, Metric q, Applicative q, Show a, Ord a, Floating a) => a -> PhysFuture q a -> PhysFuture q a -> PhysModel q a
 worryAbout dt fa fb = case mfilter (< dt) (timeOfIntersection fa fb) of
   Nothing -> readFuture dt fa
   Just cTime -> readFuture (dt - cTime) . applyForce (fa^.appliedForce ^+^ normalResponse (readFuture cTime fa) (readFuture cTime fb)) $ readFuture cTime fa
 
-segmentStoryOnCollision :: (Floating a, Metric q, Epsilon a, Foldable q, Applicative q, Show a, Ord a) => PhysStory q a -> PhysFuture q a -> PhysStory q a
+segmentStoryOnCollision :: (Floating a, Metric q, Foldable q, Applicative q, Show a, Ord a) => PhysStory q a -> PhysFuture q a -> PhysStory q a
 segmentStoryOnCollision st col = case st^.expiryInfo of
   Nothing -> case timeOfIntersection (st^.initialModel) col of
     -- No collision in this, the last chapter of the story
@@ -410,7 +443,7 @@ segmentStoryOnCollision st col = case st^.expiryInfo of
     -- Not colliding during this chapter, maybe later
     _ -> st {_expiryInfo = Just (splitTime,segmentStoryOnCollision st' col)}
 
-collideWith :: (Floating a, Metric q, Epsilon a, Foldable q, Applicative q, Show a, Ord a) => PhysFuture q a -> PhysStory q a -> PhysStory q a
+collideWith :: (Floating a, Metric q, Foldable q, Applicative q, Show a, Ord a) => PhysFuture q a -> PhysStory q a -> PhysStory q a
 collideWith col st = case timeOfIntersection (st^.initialModel) col of
   -- Perhaps we will collide in a later chapter
   Nothing -> checkNextChapter
@@ -422,12 +455,23 @@ collideWith col st = case timeOfIntersection (st^.initialModel) col of
     _ -> checkNextChapter
   where
     checkNextChapter = expiryInfo._Just %~ (\(expiry,next) -> (expiry,collideWith (seekFuture expiry col) next)) $ st
+-}
+resultCollisionModel :: (Epsilon a,Ord a,Floating a, Metric q) => PhysModel q a -> PhysModel q a -> PhysModel q a
+resultCollisionModel col move = (currentOrigin %~ (^+^ 0.05 *^ normalResponse move col)) . (currentVelocity %~ (^+^ normalResponse move col)) $ move
 
-resultCollisionModel :: (Floating a, Epsilon a, Metric q) => PhysModel q a -> PhysModel q a -> PhysModel q a
-resultCollisionModel col move = currentVelocity %~ (^+^ normalResponse move col) $ move
-
-normalResponse :: (Floating a, Epsilon a, Metric q) => PhysModel q a -> PhysModel q a -> q a
-normalResponse mover kicker = normalize kickNormal ^* (norm dv * 1.6)
+normalResponse :: (Epsilon a,Ord a,Floating a, Metric q) => PhysModel q a -> PhysModel q a -> q a
+normalResponse a b = normalize (collisionNormal b a) ^* ((1 + norm dv) * 1.6)
   where
-    dv = mover^.currentVelocity ^-^ kicker^.currentVelocity
-    kickNormal = (mover^.currentOrigin ^+^ mover^.physDomain.to domainCenter) ^-^ (kicker^.currentOrigin ^+^ kicker^.physDomain.to domainCenter)
+    dv = a^.currentVelocity ^-^ b^.currentVelocity
+
+-- Points from B to A (on centers)
+collisionNormal :: (Ord a,Floating a,Additive q) => PhysModel q a -> PhysModel q a -> q a
+collisionNormal a b = topA ^+^ topB --(a^.currentOrigin ^+^ a^.physDomain.to domainCenter) ^-^ (b^.currentOrigin ^+^ b^.physDomain.to domainCenter)
+  where
+    topA = fmap (\x -> if kindaCloseToZero x then 1 else 0) $ (a^.currentOrigin ^+^ qA) ^-^ (b^.currentOrigin)
+    topB = fmap (\x -> if kindaCloseToZero x then (-1) else 0) $ (a^.currentOrigin) ^-^ (b^.currentOrigin ^+^ qB)
+    (AABBDomain qA) = a^.physDomain
+    (AABBDomain qB) = b^.physDomain
+
+nextBlink :: (Epsilon a,Show (q [a]),Eq (q a),Foldable q, Applicative q, Show a, Ord a, Floating a, Metric q) => [PhysBlink q a] -> PhysBlink q a -> Maybe (PhysBlink q a)
+nextBlink bs b = fmap getMin . getOption . foldMap (Option . fmap Min) $ blinkIntersect b <$> (filter (/= b) bs)
