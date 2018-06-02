@@ -24,7 +24,7 @@ logStrTag :: String -> String -> IO ()
 logStrTag tag str = if elem tag disabledTags then pure () else logStrLn $ "[\x1b[34m" ++ tag ++ "\x1b[0m]" ++ str
 
 disabledTags :: [String]
-disabledTags = []--["Tick"]
+disabledTags = ["Tick"]
 
 logInfo :: String -> IO ()
 logInfo = logStrTag "Info"

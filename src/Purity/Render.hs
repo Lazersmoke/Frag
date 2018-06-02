@@ -30,6 +30,7 @@ import System.IO.Unsafe
 
 import Purity.Data
 
+-- | An unpacked description of the information in a Wavefront OBJ
 data ModelData = ModelData
   {modelVerticies :: [V3 GLfloat]
   ,modelTexCoords :: Maybe [V2 GLfloat]
@@ -37,6 +38,7 @@ data ModelData = ModelData
   ,modelIndicies :: [V3 GLushort]
   }
 
+-- | A description of an indexed model that can be drawn by OpenGL
 data DrawModel = DrawModel
   {indexCount :: GLsizei
   ,vaoName :: GLuint
@@ -45,6 +47,7 @@ data DrawModel = DrawModel
   ,textureName :: Maybe GLuint
   }
 
+-- | Instructions to draw a model. Can be the backdoor DrawDirectly for complicated things
 data DrawInstructions = DrawIndexedModel DrawModel | DrawDirectly (IO ())
 
 -- | The per-model information needed to render
@@ -54,24 +57,7 @@ data RenderSpec = RenderSpec
   ,renderItemName :: String
   }
 
--- | The per-frame information needed to render
-data RenderContext = RenderContext
-  {viewMatrix :: M44 GLfloat
-  ,projMatrix :: M44 GLfloat
-  ,lightPos :: V3 GLfloat
-  }
-
--- | All the context that must be passed from OpenGL initialization to the renderer
--- This information is per-program-run
-data OpenGLInfo = OpenGLInfo
-  {shaderProgram :: GLuint
-  ,modelMatrixId :: GLint
-  ,viewMatrixId :: GLint
-  ,projectionMatrixId :: GLint
-  ,lightLocationId :: GLint
-  ,textureSamplerId :: GLint
-  }
-
+-- | An OpenGL shader, with its reference name and uniform parameters
 data ShaderProgram = ShaderProgram
   {shaderName :: GLuint
   ,shaderUniformNames :: [GLint]
@@ -79,8 +65,9 @@ data ShaderProgram = ShaderProgram
 
 -- | Pretty(ish) print a matrix-like structure
 prettyMatrix :: (Foldable f, Foldable g, Show a) => f (g a) -> String
-prettyMatrix = (++"\n") . foldMap ((++"\n") . foldMap ((++" \t") . show))
+prettyMatrix = ("\n"++) . (++"\n") . foldMap ((++"\n") . foldMap ((++" \t") . show))
 
+-- | Given a model matrix uniform id and a RenderSpec, tell OpenGL to draw the object
 drawModel :: GLint -> RenderSpec -> IO ()
 drawModel modelMatrixId RenderSpec{..} = do
   sendMatrix "Model" modelMatrixId modelMatrix
@@ -141,6 +128,7 @@ loadTexture texturePath = do
   glGenerateMipmap GL_TEXTURE_2D
   pure textureId
 
+-- | Build a flat (untextured) DrawModel from an OBJ file path
 initFlatModel :: FilePath -> IO (DrawModel, ModelData)
 initFlatModel modelPath = do
   logInfo $ "Initializing flat model " ++ modelPath ++ "..."
@@ -211,6 +199,7 @@ initTexturedModel modelPath texturePath = do
       }
     )
 
+-- | Make a draw model for drawing the indicated vertex/index data as GL_LINES
 initLines :: [V3 GLfloat] -> [GLushort] -> IO DrawModel
 initLines verts indexData = do
   (vao,[vbo,ibo]) <- generateVertexNames ["Vertex","Index"]
@@ -231,6 +220,8 @@ initLines verts indexData = do
     ,textureName = Nothing
     }
 
+-- | Generate a VAO and some buffer objects and return them in a neat package
+-- Parameter is a list of logging names for the buffers
 generateVertexNames :: [String] -> IO (GLuint,[GLuint])
 generateVertexNames bufs = do
   logInfo "Generating Vertex Array Object Name..."
@@ -245,6 +236,7 @@ generateVertexNames bufs = do
   pure (vao,bufObjs)
   
 
+-- | Load a vertex attribute from a Wavefront OBJ
 loadVertexAttr :: (Show q, Storable q) => Wavefront.WavefrontOBJ -> (Wavefront.WavefrontOBJ -> Vector.Vector e) -> (e -> q) -> VertexAttribute -> IO (Maybe [q])
 loadVertexAttr model exElems toVec attr@VertexAttribute{..} = do
   let vecs = fmap toVec . Vector.toList . exElems $ model
@@ -255,6 +247,7 @@ loadVertexAttr model exElems toVec attr@VertexAttribute{..} = do
       initGLAttr attr
       pure (Just vecs)
 
+-- | Load some data into an OpenGL buffer, logging some useful information along the way
 bufferGLData :: forall a. (Show a,Storable a) => String -> GLuint -> GLenum -> GLenum -> [a] -> IO ()
 bufferGLData name bufferName bufferType bufferHint bufferData = do
   logInfo $ name ++ " data is:"
@@ -265,6 +258,7 @@ bufferGLData name bufferName bufferType bufferHint bufferData = do
   withArray bufferData $ \bufferDataArray -> do
     glBufferData bufferType (fromIntegral $ length bufferData * sizeOf (undefined :: a)) bufferDataArray bufferHint
 
+-- | Load no data into an OpenGL buffer so we can later use glBufferSubData
 setupEmptyBuffer :: String -> GLuint -> GLenum -> GLsizeiptr -> GLenum -> IO ()
 setupEmptyBuffer name bufferName bufferType bufferSize bufferHint = do
   logInfo $ "Binding " ++ name ++ " buffer..."
@@ -272,6 +266,7 @@ setupEmptyBuffer name bufferName bufferType bufferSize bufferHint = do
   logInfo $ "Initializing " ++ name ++ " buffer with " ++ show bufferSize ++ " bytes of empty data"
   glBufferData bufferType bufferSize nullPtr bufferHint
 
+-- | Given a description of a vertex attribute, enable it for the current VAO
 initGLAttr :: VertexAttribute -> IO ()
 initGLAttr (VertexAttribute{..}) = do
   logInfo $ "Enabling vertex " ++ attributeName ++ " attribute..."
@@ -281,21 +276,19 @@ initGLAttr (VertexAttribute{..}) = do
   logInfo $ "Defining vertex " ++ attributeName ++ " attribute attributes..."
   glVertexAttribPointer attributeIndex attributeSize attributeType attributeNormalized attributeStride attributeOffset
 
+-- | Print and then send a 4x4 matrix to OpenGL in a shader uniform
+-- Mostly, this hides the scary GL_TRUE which is awful to debug
 sendMatrix :: String -> GLint -> M44 GLfloat -> IO ()
 sendMatrix matName matId mat = do
   logTick $ "Sending " ++ matName ++ " matrix..."
   logTick $ prettyMatrix $ mat
   with mat $ glUniformMatrix4fv matId 1 GL_TRUE . (castPtr :: Ptr (M44 GLfloat) -> Ptr GLfloat)
 
+-- | Helper function for passing matricies sometimes
 uncurry3 :: (a -> b -> c -> d) -> (a,b,c) -> d
 uncurry3 f (a,b,c) = f a b c
 
-runFreeType :: IO FT.FT_Error -> IO ()
-runFreeType m = do
-    r <- m
-    unless (r == 0) $ fail $ "FreeType Error:" ++ show r
-
-
+-- | A loaded FreeType character texture along with its FreeType metrics for fancy printing
 data FreeTypeCharacter = FreeTypeCharacter
   {characterTextureName :: GLuint
   ,characterSize :: (FT.FT_Int,FT.FT_Int)
@@ -303,11 +296,18 @@ data FreeTypeCharacter = FreeTypeCharacter
   ,characterAdvance :: FT.FT_Int -- ^ The advance in truncated full pixels (not 1/64ths)
   }
 
+-- | Horrible, hacky, global cache of loaded FTC characters
 {-# NOINLINE globalFTCache #-}
 globalFTCache :: IORef (Map.Map (Char,Int) FreeTypeCharacter)
 globalFTCache = unsafePerformIO $ newIORef Map.empty
 
--- Load a FreeType character
+-- | Interpret a FreeType primitive function by crashing horribly if it fails
+runFreeType :: IO FT.FT_Error -> IO ()
+runFreeType m = do
+    r <- m
+    unless (r == 0) $ fail $ red "FreeType Error:" ++ show r
+
+-- | Load a FreeType character
 -- Adapted from: http://zyghost.com/articles/Haskell-font-rendering-with-freetype2-and-opengl.html
 loadCharacter :: FilePath -> Int -> Char -> IO FreeTypeCharacter
 loadCharacter path px char = Map.lookup (char,px) <$> readIORef globalFTCache >>= \case
