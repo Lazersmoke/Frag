@@ -341,7 +341,10 @@ renderLoop !state arrowDrawModel lineShader flatModelShader texturedModelShader 
     -- Update physics
     anyCol = or $ map (\p -> case p^.physicalPresence.plannedBlink of {Just plBl -> scaledt >= plBl^.blinkTime; Nothing -> False}) (state^.presences)
     updatePhysics = presences %~ map (updateNextBlink . updateThisBlink)
-    updateNextBlink p = physicalPresence.plannedBlink .~ nextBlink (map (^.physicalPresence.exigentBlink) $ state^.presences) (p^.physicalPresence.exigentBlink) $ p
+    -- TODO: Actually efficient
+    updateNextBlink p = if anyCol || state^.frameTime == state^.frameTimeInitial
+      then physicalPresence.plannedBlink .~ nextBlink (map (^.physicalPresence.to (glideTo scaledt)) $ state^.presences) (p^.physicalPresence.exigentBlink) $ p
+      else p
     updateThisBlink p = case p^.physicalPresence.plannedBlink of
       Just plBl | scaledt >= plBl^.blinkTime -> (physicalPresence.plannedBlink .~ Nothing) . (physicalPresence.exigentBlink .~ plBl) $ p
       _ -> p

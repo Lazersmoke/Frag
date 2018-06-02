@@ -133,6 +133,12 @@ reblink dt = (blinkVision %~ seekFuture dt) . (blinkTime +~ dt)
 blinkTo :: (Additive q,Fractional a,Num a) => a -> PhysBlink q a -> PhysBlink q a
 blinkTo t b = (blinkVision %~ seekFuture (t - (b^.blinkTime))) . (blinkTime .~ t) $ b
 
+-- | Sample a blink from a glide at an absolute time
+glideTo :: (Additive q,Fractional a,Ord a,Num a) => a -> PhysGlide q a -> PhysBlink q a
+glideTo t g = case g^.plannedBlink of
+  Just plBl | t >= plBl^.blinkTime -> blinkTo t plBl
+  _ -> blinkTo t (g^.exigentBlink)
+
 -- | Returns the first time the two simultaneous futures intersect after they start
 -- This operation is symmetric (anti-symmetry is a bug)
 timeOfIntersection :: (Foldable q, Applicative q, Show a, Ord a, Floating a, Metric q) => PhysFuture q a -> PhysFuture q a -> Maybe a
