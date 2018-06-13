@@ -61,7 +61,7 @@ aabbContaining md = AABBDomain ((maximum <$> trans) ^-^ (minimum <$> trans))
     trans = sequenceA (modelVerticies md)
 
 wireframeAABB :: PhysDomain V3 GLfloat -> IO DrawModel
-wireframeAABB (AABBDomain (V3 x y z)) = initLines vs is
+wireframeAABB (AABBDomain (V3 x y z)) = initLines GL_LINES vs is
   where
     vs =
       [V3 0 0 0,V3 0 0 z,V3 0 y 0,V3 0 y z
@@ -71,6 +71,17 @@ wireframeAABB (AABBDomain (V3 x y z)) = initLines vs is
       [0,4,1,5,2,6,3,7
       ,0,2,1,3,4,6,5,7
       ,0,1,2,3,4,5,6,7]
+wireframeAABB (SphereDomain r) = initLines GL_LINES vs is
+  where
+    vs =
+      [V3 r 0 0,V3 (-r) 0 0
+      ,V3 0 r 0,V3 0 (-r) 0
+      ,V3 0 0 r,V3 0 0 (-r)
+      ]
+    is =
+      [0,2,2,1,1,3,3,0
+      ,0,4,4,1,1,5,5,0
+      ,2,4,4,3,3,5,5,2]
 
 -- | The main entry point
 purityMain :: IO ()
@@ -118,8 +129,9 @@ purityMain = do
           (rmArrow, _arrowData) <- initFlatModel "unitzarrow.obj"
           wireL <- wireframeAABB $ objLeft^.presentModel.physDomain
           wireR <- wireframeAABB $ objRight^.presentModel.physDomain
+          wireG <- wireframeAABB $ objGround^.presentModel.physDomain
           let 
-            left = Presence
+            _left = Presence
               {_visiblePresence = wireL
               ,_physicalPresence = glideForever . blinkAt 0 $ objLeft
               }
@@ -127,9 +139,13 @@ purityMain = do
               {_visiblePresence = wireR
               ,_physicalPresence = glideForever . blinkAt 0 $ objRight
               }
+            ground = Presence
+              {_visiblePresence = wireG
+              ,_physicalPresence = glideForever . blinkAt 0 $ objGround
+              }
           logInfo "Entering render loop..."
           Just ft0 <- (fmap realToFrac) <$> GLFW.getTime
-          renderLoop ((presences .~ [left,right]) . (frameTimeInitial .~ ft0) . (frameTime .~ ft0) $ defaultPurityState) rmArrow lineShader flatModelShader texturedModelShader textShader theWindow
+          renderLoop ((presences .~ [right,ground]) . (frameTimeInitial .~ ft0) . (frameTime .~ ft0) $ defaultPurityState) rmArrow lineShader flatModelShader texturedModelShader textShader theWindow
     False -> logInfo "Failure!"
 
 -- | A loop that renders the scene until the program ends
@@ -137,7 +153,7 @@ renderLoop :: PurityState -> DrawModel -> ShaderProgram -> ShaderProgram -> Shad
 renderLoop !state arrowDrawModel lineShader flatModelShader texturedModelShader textShader theWindow = do
   -- Compute updated physics models for this frame
   let 
-    frameSpeed = 0.1
+    frameSpeed = 1
     scaledt = frameSpeed * (state^.frameTime - state^.frameTimeInitial)
     onThisFrame :: Presence V3 Float -> PhysBlink V3 Float
     onThisFrame pres = case pres^.physicalPresence.plannedBlink of
@@ -170,6 +186,8 @@ renderLoop !state arrowDrawModel lineShader flatModelShader texturedModelShader 
     velocityArrow m = arrowFromTo (m^.currentOrigin) ((m^.currentOrigin) ^+^ (m^.currentVelocity))
     accelArrows = map accelArrow (state^.presences)
     accelArrow p = arrowFromTo (modelThisFrame p^.currentOrigin) ((modelThisFrame p^.currentOrigin) ^+^ (p^.physicalPresence.exigentBlink.blinkVision.appliedForce))
+    normalArrows = map normalArrow (state^.presences)
+    normalArrow p = arrowFromTo (modelThisFrame p^.currentOrigin) ((modelThisFrame p^.currentOrigin) ^+^ (onThisFrame p^.blinkVision.normalForce))
     arrowFatnessScale = 3
     arrowFromTo f t = RenderSpec
       {modelMatrix = mkTransformationMat (fromQuaternion $ deltaQuat arrowModelDirection (normalize $ t - f)) f !*! V4 (V4 arrowFatnessScale 0 0 0) (V4 0 (norm $ t - f) 0 0) (V4 0 0 arrowFatnessScale 0) (V4 0 0 0 1)
@@ -258,6 +276,12 @@ renderLoop !state arrowDrawModel lineShader flatModelShader texturedModelShader 
 
     logTick "Rendering all acceleration arrows..."
     forM_ accelArrows (drawModel modelId)
+
+    logTick "Sending normal arrow color..."
+    with (V3 0 0.5 1 :: V3 Float) $ glUniform3fv flatColor 1 . castPtr
+
+    logTick "Rendering all acceleration arrows..."
+    forM_ normalArrows (drawModel modelId)
 
   do
     logTick "Using text shader program..."

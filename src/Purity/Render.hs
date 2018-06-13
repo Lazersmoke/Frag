@@ -200,8 +200,8 @@ initTexturedModel modelPath texturePath = do
     )
 
 -- | Make a draw model for drawing the indicated vertex/index data as GL_LINES
-initLines :: [V3 GLfloat] -> [GLushort] -> IO DrawModel
-initLines verts indexData = do
+initLines :: GLenum -> [V3 GLfloat] -> [GLushort] -> IO DrawModel
+initLines linesMode verts indexData = do
   (vao,[vbo,ibo]) <- generateVertexNames ["Vertex","Index"]
   logInfo "Binding VAO..."
   glBindVertexArray vao
@@ -215,7 +215,7 @@ initLines verts indexData = do
   pure DrawModel
     {vaoName = vao
     ,indexCount = fromIntegral $ length indexData
-    ,primitiveType = GL_LINES
+    ,primitiveType = linesMode
     ,elementType = GL_UNSIGNED_SHORT
     ,textureName = Nothing
     }
